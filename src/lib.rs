@@ -1,4 +1,6 @@
 pub mod application;
+pub mod errors;
+pub mod traits;
 
 pub fn add(
     left: usize,
