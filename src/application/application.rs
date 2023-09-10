@@ -23,6 +23,10 @@ pub struct WebServiceApplication {
 
 impl From<DatabaseDefinition> for WebServiceApplication {
     fn from(value: DatabaseDefinition) -> Self {
+        // fn build_router_for_table -> Router {
+
+        // }
+
         fn build_router(value: DatabaseDefinition) -> Router {
             for table in &value.tables {
                 // table.
@@ -30,7 +34,7 @@ impl From<DatabaseDefinition> for WebServiceApplication {
             todo!()
         }
 
-        let mut service =
+        let service =
             WebServiceApplication::new(&format!("Generated Tailwag Application {}", value.name));
         // .router(build_router(value));
 
@@ -40,8 +44,8 @@ impl From<DatabaseDefinition> for WebServiceApplication {
     }
 }
 
-pub async fn hello() -> Json<String> {
-    Json("Hello".into())
+pub async fn hello(t: String) -> String {
+    "Hello".into()
 }
 
 #[cfg(feature = "development")]

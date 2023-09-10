@@ -12,6 +12,7 @@ edition = "2021"
 # tailwag_macros = { version = "0.1.0", path = "../macros" }
 tailwag_orm = { version = "0.1.0", path = "../orm" }
 tailwag_utils = { version = "0.1.0", path = "../utils" }
+tailwag_macros = { version = "0.1.0", path = "../macros" }
 
 
 # Error Handling Ergonomics
