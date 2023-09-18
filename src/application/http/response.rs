@@ -1,5 +1,5 @@
 pub struct HttpResponse {
-    body: HttpResponseBody,
+    pub(crate) body: HttpResponseBody,
 }
 
 type HttpResponseBody = String;

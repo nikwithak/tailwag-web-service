@@ -1,5 +1,5 @@
 mod application;
 pub use application::*;
-pub mod application_definition;
 mod http;
+pub mod rest_web_service;
 pub mod stats;

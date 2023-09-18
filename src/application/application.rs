@@ -1,47 +1,23 @@
-use axum::{routing::get, Json, Router};
+use axum::{
+    routing::{get, MethodRouter},
+    Json, Router,
+};
 use log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Postgres;
-use tailwag_orm::{
-    database_definition::database_definition::DatabaseDefinition, migration::*, AsSql,
-};
+use tailwag_orm::{migration::*, AsSql};
 
-use crate::traits::rest_api::BuildRoutes;
-
-use super::stats::RunResult;
+use super::{http::request::HttpRequestHandler, stats::RunResult};
 
 #[derive(Debug)]
 // TODO: Separate definition from config
 pub struct WebServiceApplication {
     application_name: String,
-    router: Router,
+    pub router: Router,
     socket_addr: String,
     port: i32,
     migrate_on_init: bool,
     database_conn_string: String,
-}
-
-impl From<DatabaseDefinition> for WebServiceApplication {
-    fn from(value: DatabaseDefinition) -> Self {
-        // fn build_router_for_table -> Router {
-
-        // }
-
-        fn build_router(value: DatabaseDefinition) -> Router {
-            for table in &value.tables {
-                // table.
-            }
-            todo!()
-        }
-
-        let service =
-            WebServiceApplication::new(&format!("Generated Tailwag Application {}", value.name));
-        // .router(build_router(value));
-
-        // let router = build_router(value);
-
-        service
-    }
 }
 
 pub async fn hello(t: String) -> String {
@@ -70,12 +46,21 @@ impl WebServiceApplication {
         }
     }
 
-    /// Adds a resource's route to the Path.
-    pub fn with_resource<T: BuildRoutes>(
+    pub fn add_routes(
         mut self,
-        route: &str,
+        path: &str,
+        routes: Router,
     ) -> Self {
-        self.router = self.router.nest(route, <T as BuildRoutes>::build_routes());
+        self.router = routes;
+        self
+    }
+
+    pub fn route<S, T: HttpRequestHandler<S>>(
+        self,
+        path: &str,
+        // function: T,
+        handler: T,
+    ) -> Self {
         self
     }
 }
@@ -102,6 +87,10 @@ impl WebServiceApplication {
 
     /// Start the Application. By default, starts an HTTP server bound to `127.0.0.1::3001`.
     pub async fn run(self) -> RunResult {
+        use env_logger::Env;
+
+        // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
+        env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         /////////////////////////////
         // Axum Web implementation //
         /////////////////////////////
@@ -124,7 +113,7 @@ impl WebServiceApplication {
     pub async fn init_dev() -> Self {
         use env_logger::Env;
 
-        dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
+        // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         let app = WebServiceApplication::default();
         app
@@ -149,7 +138,7 @@ impl WebServiceApplication {
             log::info!("[DATABASE] Running Migrations");
             let migration = Migration::compare(
                 None,
-                &tailwag_orm::database_definition::database_definition::DatabaseDefinition::new_unchecked(
+                &tailwag_orm::data_definition::database_definition::DatabaseDefinition::new_unchecked(
                     "postgres",
                 )
                 // .table(FoodTruck::get_table_definition())
@@ -165,7 +154,7 @@ impl WebServiceApplication {
 
             let migration = Migration::compare(
                 None,
-                &tailwag_orm::database_definition::database_definition::DatabaseDefinition::new(
+                &tailwag_orm::data_definition::database_definition::DatabaseDefinition::new(
                     "postgres",
                 )
                 .expect("Failed to initialize database definition")

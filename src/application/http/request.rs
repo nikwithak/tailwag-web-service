@@ -1,13 +1,24 @@
-use super::{response::HttpResponse, HttpHeader, ToJsonString};
+use super::{response::HttpResponse, routes::RoutePath, HttpHeader, ToJsonString};
+
+pub struct TailwagApplicationRequest {
+    request: HttpRequest,
+    state: String, // TODO
+    context: RequestContext,
+}
+
+pub struct RequestContext;
 
 pub struct HttpRequest {
     body: HttpRequestBody,
     method: HttpMethod,
     headers: HttpHeader,
+    path: RoutePath,
     // .. add here as needed
 }
 
-pub trait HttpRequestHandler<S> {
+fn handle_http_request(req: HttpRequest) {}
+
+pub trait HttpRequestHandler<Req> {
     fn handle_request(
         &self,
         request: HttpRequest,
