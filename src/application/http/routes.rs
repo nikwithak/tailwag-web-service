@@ -9,6 +9,7 @@ pub struct RoutePath {
     path: String,
 }
 
+#[allow(unused)]
 impl RoutePath {
     // TODO: Impl the RoutePath / ValidatedString trait
     pub fn new<T: Into<String>>(path: T) -> Result<Self, String> {
@@ -24,6 +25,7 @@ impl RoutePath {
     }
 }
 
+#[allow(unused)]
 pub struct HttpRoute<T, S>
 where
     T: HttpRequestHandler<S>,
@@ -51,6 +53,7 @@ macro_rules! build_route_fn {
     };
 }
 
+#[allow(dead_code)]
 impl<T: HttpRequestHandler<R>, R> HttpRoute<T, R>
 where
     T: HttpRequestHandler<R>,

@@ -10,19 +10,18 @@ use serde::Serialize;
 use self::{request::HttpRequest, response::HttpResponse};
 // use tailwag_macros::Deref;
 
+#[allow(dead_code)]
 pub struct HttpHeader {
     name: String,
     data: String,
 }
 
 pub trait HttpMiddleware {
-    fn before_request(request: HttpRequest) -> HttpRequest {
-        todo!();
-        request
+    fn before_request(_request: HttpRequest) -> HttpRequest {
+        todo!()
     }
-    fn after_request(response: HttpResponse) -> HttpResponse {
-        todo!();
-        response
+    fn after_request(_response: HttpResponse) -> HttpResponse {
+        todo!()
     }
 }
 

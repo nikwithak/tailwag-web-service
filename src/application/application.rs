@@ -1,7 +1,4 @@
-use axum::{
-    routing::{get, MethodRouter},
-    Json, Router,
-};
+use axum::{routing::get, Router};
 use log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Postgres;
@@ -21,7 +18,7 @@ pub struct WebServiceApplication {
 }
 
 pub async fn hello(t: String) -> String {
-    "Hello".into()
+    format!("Hello, {}", &t)
 }
 
 #[cfg(feature = "development")]
@@ -46,6 +43,7 @@ impl WebServiceApplication {
         }
     }
 
+    #[allow(unused)]
     pub fn add_routes(
         mut self,
         path: &str,
@@ -55,6 +53,7 @@ impl WebServiceApplication {
         self
     }
 
+    #[allow(unused)]
     pub fn route<S, T: HttpRequestHandler<S>>(
         self,
         path: &str,

@@ -1,5 +1,4 @@
 use axum::Router;
-use sqlx::{postgres::PgRow, FromRow};
 use tailwag_macros::Deref;
 use tailwag_orm::{
     data_definition::database_definition::{DatabaseDefinition, DatabaseDefinitionBuilder},
@@ -21,6 +20,7 @@ pub struct RestWebService {
 }
 
 impl RestWebService {
+    #[allow(dead_code)]
     fn new(name: &str) -> Self {
         Self {
             _resources: DatabaseDefinition::new_unchecked("_"),
@@ -28,10 +28,11 @@ impl RestWebService {
         }
     }
 
+    #[allow(dead_code)]
     fn with_route<P, H, T>(
         self,
-        path: P,
-        handler: H,
+        _path: P,
+        _handler: H,
     ) -> Self
     where
         P: Into<RoutePath>,
@@ -41,6 +42,8 @@ impl RestWebService {
         self
     }
 
+    #[allow(dead_code)]
+    #[allow(unused_mut)]
     fn with_crud_resource<T>(mut self) -> Self
     where
         T: BuildRoutes<T> + Queryable + Insertable + Send + Unpin + 'static,

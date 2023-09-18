@@ -1,13 +1,14 @@
 use super::{response::HttpResponse, routes::RoutePath, HttpHeader, ToJsonString};
 
-pub struct TailwagApplicationRequest {
+pub struct _TailwagApplicationRequest {
     request: HttpRequest,
     state: String, // TODO
-    context: RequestContext,
+    context: _RequestContext,
 }
 
-pub struct RequestContext;
+pub struct _RequestContext;
 
+#[allow(dead_code)]
 pub struct HttpRequest {
     body: HttpRequestBody,
     method: HttpMethod,
@@ -15,8 +16,6 @@ pub struct HttpRequest {
     path: RoutePath,
     // .. add here as needed
 }
-
-fn handle_http_request(req: HttpRequest) {}
 
 pub trait HttpRequestHandler<Req> {
     fn handle_request(
@@ -29,8 +28,8 @@ pub trait HttpRequestHandler<Req> {
 impl<Function, Req, Res> HttpRequestHandler<Req> for Function
 where
     Function: Fn(Req) -> Res,
-    Req: Send + From<String>,
-    Res: ToJsonString, // Really just make
+    Req: Send + From<String>, // TODO: Make this From<HttpRequest>
+    Res: ToJsonString,        // Really just make
 {
     fn handle_request(
         &self,
@@ -45,6 +44,7 @@ where
 }
 
 type HttpRequestBody = String;
+#[allow(dead_code)]
 pub enum HttpMethod {
     Get,
     Post,
