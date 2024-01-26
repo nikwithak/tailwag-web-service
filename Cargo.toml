@@ -57,8 +57,10 @@ sqlx = { version = "0.7.1", features = [
     "chrono",
     "uuid",
 ] }
+tower-http = { version = "0.4.4", features = ["cors"] }
 
 [features]
 default = ["development"]
+axum = []
 release = []
 development = []

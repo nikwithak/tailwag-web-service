@@ -1,38 +1,23 @@
 use axum::{async_trait, Router};
 use serde::Deserialize;
-use tailwag_orm::{
-    data_manager::PostgresDataProvider,
-    queries::{Insertable, Queryable},
-};
+use tailwag_orm::{data_manager::PostgresDataProvider, queries::Insertable};
 
 #[async_trait]
-pub trait BuildRoutes<T: Queryable + Insertable> {
+pub trait BuildRoutes<T: Insertable> {
     async fn build_routes(data_manager: PostgresDataProvider<T>) -> Router;
 }
-
-// #[async_trait]
-// impl<'a, T> BuildRoutes<T> for T
-// where
-//     T: Queryable + Insertable + BuildCreateRoute<'a> + BuildListGetRoute + Send,
-// {
-//     async fn build_routes(data_manager: PostgresDataProvider<T>) -> Router {
-//         Router::new()
-//             .nest("/", Self::build_create_route())
-//             .nest("/", Self::build_list_get_route())
-//     }
-// }
 
 pub trait BuildCreateRoute<'a>
 where
     Self: Sized + Insertable,
 {
-    // type Request: Into<Self> + Deserialize<'a>;
+    type Request: Into<Self> + Deserialize<'a>;
     fn build_create_route() -> Router;
 }
 
 pub trait BuildGetItemRoute<'a>
 where
-    Self: Sized + Queryable,
+    Self: Sized,
 {
     type Request: Into<Self> + Deserialize<'a>;
     fn build_list_get_route() -> Router;
@@ -40,7 +25,7 @@ where
 
 pub trait BuildListGetRoute
 where
-    Self: Sized + Queryable,
+    Self: Sized,
 {
     fn build_list_get_route() -> Router;
 }

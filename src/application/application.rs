@@ -1,8 +1,11 @@
-use axum::{routing::get, Router};
+use axum::{middleware::map_request_with_state, routing::get, Router};
 use log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Postgres;
 use tailwag_orm::{migration::*, AsSql};
+use tower_http::cors::{Any, CorsLayer};
+
+use crate::middleware::gateway::add_session_to_request;
 
 use super::{http::request::HttpRequestHandler, stats::RunResult};
 
@@ -17,6 +20,10 @@ pub struct WebServiceApplication {
     database_conn_string: String,
 }
 
+// TODO: PReferences for thigns like:
+//  * trailling slash / no trailing slash
+//  * Plural resource names or singular
+
 pub async fn hello(t: String) -> String {
     format!("Hello, {}", &t)
 }
@@ -24,24 +31,37 @@ pub async fn hello(t: String) -> String {
 #[cfg(feature = "development")]
 impl Default for WebServiceApplication {
     fn default() -> Self {
+        let router = Router::new().route("/", get(hello));
         Self {
             socket_addr: "127.0.0.1".to_owned(),
-            port: 3001,
+            port: 8081,
             application_name: "Tailwag Default Application".into(),
             migrate_on_init: true,
             database_conn_string: "postgres://postgres:postgres@127.0.0.1:5432/postgres".into(),
-            router: Router::new().route("/", get(hello)),
+            router,
         }
     }
 }
 
+/// The base class for building an application. See examples for usage.
 impl WebServiceApplication {
-    pub fn new(application_name: &str) -> Self {
+    pub fn new(app_name: &str) -> Self {
         Self {
-            application_name: application_name.into(),
+            application_name: app_name.into(),
             ..Default::default()
         }
     }
+
+    pub fn new_with_auth(app_name: &str) -> Self {
+        let app = Self::new(app_name);
+        // app.with_resource::<User>();
+        app
+    }
+
+    // pub fn with_resource<T: BuildRoutes<T>>(mut self) -> Self {
+    //     self.add_routes('/', T::build_routes());
+    //     self
+    // }
 
     #[allow(unused)]
     pub fn add_routes(
@@ -66,30 +86,36 @@ impl WebServiceApplication {
 
 impl WebServiceApplication {
     fn print_welcome_message(&self) {
-        log::info!("=============================================");
-        log::info!("  Starting Web Application {}", &self.application_name);
-        log::info!("=============================================");
-        log::info!("");
+        log::info!(
+            r#"
+=============================================
+   Starting Web Application {}
+=============================================
+"#,
+            &self.application_name,
+        );
         log::debug!("CONFIGURED ENVIRONMENT: {:?}", &self);
         #[cfg(feature = "development")]
         {
             log::warn!(
-                "============================================================================="
-            );
-            log::warn!("     ++ {} IS RUNNING IN DEVELOPMENT MODE ++", &self.application_name);
-            log::warn!("     ++      DO NOT USE IN PRODUCTION     ++",);
-            log::warn!(
-                "============================================================================="
+                r#"
+============================================================================="
+    ++ {} IS RUNNING IN DEVELOPMENT MODE ++
+    ++      DO NOT USE IN PRODUCTION     ++
+============================================================================="
+"#,
+                self.application_name
             );
         }
     }
 
-    /// Start the Application. By default, starts an HTTP server bound to `127.0.0.1::3001`.
-    pub async fn run(self) -> RunResult {
+    /// Start the Application. By default, starts an HTTP server bound to `128.0.0.1::3001`.
+    async fn run(self) -> RunResult {
         use env_logger::Env;
 
         // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+
         /////////////////////////////
         // Axum Web implementation //
         /////////////////////////////
@@ -99,7 +125,24 @@ impl WebServiceApplication {
         axum::Server::bind(
             &bind_addr.parse().expect(&format!("Unable to bind to address: {}", &bind_addr)),
         )
-        .serve(self.router.into_make_service())
+        .serve(
+            self.router
+                // Allow CORS - TODO: Fix this to be configurable / safe. Currently allows everything
+                .layer(
+                    CorsLayer::new()
+                        .allow_methods([
+                            hyper::Method::GET,
+                            hyper::Method::POST,
+                            hyper::Method::PATCH,
+                            hyper::Method::OPTIONS,
+                            hyper::Method::DELETE,
+                        ])
+                        .allow_origin(Any)
+                        .allow_headers(Any),
+                )
+                .layer(axum::middleware::from_fn(add_session_to_request))
+                .into_make_service(),
+        )
         .await
         .unwrap();
 
@@ -134,39 +177,39 @@ impl WebServiceApplication {
         // TODO: Migrate this to the DataProvider / DataManager itself.
         // TODO: Macro this?
         if self.migrate_on_init {
-            log::info!("[DATABASE] Running Migrations");
-            let migration = Migration::compare(
+            if let Some(migration) = Migration::compare(
+                // TODO: Actually do a compare here
                 None,
                 &tailwag_orm::data_definition::database_definition::DatabaseDefinition::new_unchecked(
                     "postgres",
                 )
-                // .table(FoodTruck::get_table_definition())
                 .into(),
-            )
-            .unwrap();
+            ) {
+                log::info!("[DATABASE] Running Migrations");
+                // TODO: Refactor the migrations to return statements as a vec
+                sqlx::query::<Postgres>(&migration.as_sql())
+                    .execute(&pool)
+                    .await
+                    .expect("[DATABASE] Failed to run migrations");
 
-            // TODO: Refactor the migrations to return statements as a vec
-            sqlx::query::<Postgres>(&migration.as_sql())
-                .execute(&pool)
-                .await
-                .expect("[DATABASE] Failed to run migrations");
-
-            let migration = Migration::compare(
-                None,
-                &tailwag_orm::data_definition::database_definition::DatabaseDefinition::new(
-                    "postgres",
+                let migration = Migration::compare(
+                    None,
+                    &tailwag_orm::data_definition::database_definition::DatabaseDefinition::new(
+                        "postgres",
+                    )
+                    .expect("Failed to initialize database definition")
+                    .into(),
                 )
-                .expect("Failed to initialize database definition")
-                // .table(Brewery::get_table_definition())
-                .into(),
-            )
-            .unwrap();
+                .unwrap();
 
-            // TODO: Refactor the migrations to return statements as a vec
-            sqlx::query::<Postgres>(&migration.as_sql())
-                .execute(&pool)
-                .await
-                .expect("[DATABASE] Failed to run migrations");
+                // TODO: Refactor the migrations to return statements as a vec
+                sqlx::query::<Postgres>(&migration.as_sql())
+                    .execute(&pool)
+                    .await
+                    .expect("[DATABASE] Failed to run migrations");
+            } else {
+                log::info!("[DATABASE] Database is up-to-data - no migrations needed!")
+            }
         } else {
             log::info!("[DATABASE] Skipping Migrations");
             // TODO: Verify that DB is up to date - panic if incompatible with current DB schema
@@ -184,6 +227,7 @@ impl WebServiceApplication {
         // .nest("/food_truck", food_truck::create_routes(pool.clone()))
         // .nest("/brewery", brewery::create_routes(pool.clone()));
         // ;
-        log::info!("{:?}", self.run().await);
+        let result = self.run().await;
+        log::info!("{:?}", result);
     }
 }

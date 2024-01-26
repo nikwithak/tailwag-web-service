@@ -2,7 +2,7 @@ use axum::Router;
 use tailwag_macros::Deref;
 use tailwag_orm::{
     data_definition::database_definition::{DatabaseDefinition, DatabaseDefinitionBuilder},
-    queries::{Insertable, Queryable},
+    queries::Insertable,
 };
 
 use crate::traits::rest_api::BuildRoutes;
@@ -46,7 +46,7 @@ impl RestWebService {
     #[allow(unused_mut)]
     fn with_crud_resource<T>(mut self) -> Self
     where
-        T: BuildRoutes<T> + Queryable + Insertable + Send + Unpin + 'static,
+        T: BuildRoutes<T> + Insertable + Send + Unpin + 'static,
     {
         // let routes = T::build_routes();
         // self.application.router.nest("/", T::build_routes(data_manager));
