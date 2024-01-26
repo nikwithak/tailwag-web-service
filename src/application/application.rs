@@ -1,4 +1,4 @@
-use axum::{middleware::map_request_with_state, routing::get, Router};
+use axum::{routing::get, Router};
 use log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Postgres;
@@ -85,6 +85,7 @@ impl WebServiceApplication {
 }
 
 impl WebServiceApplication {
+    // TODO: Clean this up a bit
     fn print_welcome_message(&self) {
         log::info!(
             r#"

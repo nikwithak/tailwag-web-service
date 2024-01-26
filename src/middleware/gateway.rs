@@ -22,7 +22,7 @@ pub struct User {
 //     // expiration: chrono::
 // }
 // #[derive(Default, Display, Debug)]
-struct AuthorizationGateway;
+staruct AuthorizationGateway;
 
 // #[derive(Display)]
 enum AuthorizationStatus {
@@ -30,15 +30,18 @@ enum AuthorizationStatus {
     Unauthorized,
 }
 
-impl AuthorizationGateway {
-    // pub async fn authorize_request(Request) -> AuthorizationStatus {
-    //     req: Request<axum::body::Body>,
-    //     next: Next<axum::body::Body>,
-
-    //     todo!()
-    // }
+pub enum UserType {
+    Anonymous, // Public
+    Authenticated(User),
 }
 
+pub struct RequestContext {
+    user: UserType,
+    // session_data: String,
+    // policy: String,
+}
+
+// The actual middleware function
 pub async fn add_session_to_request<B>(
     //     mut request: axum::extract::Request
     mut request: axum::http::Request<B>,
