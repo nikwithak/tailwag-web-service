@@ -12,7 +12,7 @@ edition = "2021"
 # tailwag_macros = { version = "0.1.0", path = "../macros" }
 tailwag_orm = { version = "0.1.0", path = "../orm" }
 tailwag_utils = { version = "0.1.0", path = "../utils" }
-tailwag_macros = { version = "0.1.0", path = "../macros" }
+tailwag_macros = { version = "0.1.0", path = "../macros", features = ["orm"] }
 
 
 # Error Handling Ergonomics
@@ -58,6 +58,7 @@ sqlx = { version = "0.7.1", features = [
     "uuid",
 ] }
 tower-http = { version = "0.4.4", features = ["cors"] }
+tailwag_forms = { version = "0.1.0", path = "../forms" }
 
 [features]
 default = ["development"]

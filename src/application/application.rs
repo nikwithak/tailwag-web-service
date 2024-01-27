@@ -2,10 +2,9 @@ use axum::{routing::get, Router};
 use log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Postgres;
-use tailwag_orm::{migration::*, AsSql};
+use tailwag_orm::{migration::*, AsSql}; 
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::middleware::gateway::add_session_to_request;
 
 use super::{http::request::HttpRequestHandler, stats::RunResult};
 
@@ -52,13 +51,33 @@ impl WebServiceApplication {
         }
     }
 
-    pub fn new_with_auth(app_name: &str) -> Self {
-        let app = Self::new(app_name);
-        // app.with_resource::<User>();
+    // TODO: This is just for dev, refactor once
+    pub async fn new_with_auth(app_name: &str) -> Self {
+        let mut app = Self::new(app_name);
+        // app.add_routes("/user", <crate::middleware::gateway::User as crate::traits::rest_api::BuildRoutes<crate::middleware::gateway::User>>::build_routes(provider).await);
+        let session_provider = {
+            let provider = 
+            tailwag_orm::data_manager::PostgresDataProvider {
+                table_definition: <crate::middleware::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                db_pool: PgPoolOptions::new()
+            .max_connections(1)
+            // TODO: Unhardcode things
+            .connect("postgres://postgres:postgres@127.0.0.1:5432/postgres")
+            .await
+            .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?")
+                ,
+                _t: Default::default(),
+            };
+            // self.add_routes("/session", crate::middleware::gateway::User::build_routes(provider.clone()).await);
+            provider.run_migrations().await.expect("Migrations failed. Aborting.");
+
+            provider
+        };
+        app = app.add_routes("/session", <crate::middleware::gateway::Session as crate::traits::rest_api::BuildRoutes<crate::middleware::gateway::Session>>::build_routes(session_provider).await);
         app
     }
 
-    // pub fn with_resource<T: BuildRoutes<T>>(mut self) -> Self {
+    // pub fn with_resource<T: BuildRoutes<T>>() -> Self {
     //     self.add_routes('/', T::build_routes());
     //     self
     // }
@@ -69,7 +88,7 @@ impl WebServiceApplication {
         path: &str,
         routes: Router,
     ) -> Self {
-        self.router = routes;
+        self.router = self.router.nest(path, routes);
         self
     }
 
@@ -114,7 +133,27 @@ impl WebServiceApplication {
     async fn run(self) -> RunResult {
         use env_logger::Env;
 
+        // TODO: This doesn't belong here
+        let session_provider = {
+            let provider = 
+            tailwag_orm::data_manager::PostgresDataProvider {
+                table_definition: <crate::middleware::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                db_pool: PgPoolOptions::new()
+            .max_connections(1)
+            // TODO: Unhardcode things
+            .connect("postgres://postgres:postgres@127.0.0.1:5432/postgres")
+            .await
+            .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?")
+                ,
+                _t: Default::default(),
+            };
+            // self.add_routes("/session", crate::middleware::gateway::User::build_routes(provider.clone()).await);
+
+            provider
+        };
+
         // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
+        // TODO
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
         /////////////////////////////
@@ -141,7 +180,12 @@ impl WebServiceApplication {
                         .allow_origin(Any)
                         .allow_headers(Any),
                 )
-                .layer(axum::middleware::from_fn(add_session_to_request))
+                // TODO: Refactor this out - all the auth code here for now
+                // .with_state()
+                .layer(axum::middleware::from_fn_with_state(
+                    session_provider.clone(),
+                    crate::middleware::gateway::add_session_to_request,
+                ))
                 .into_make_service(),
         )
         .await
