@@ -6,6 +6,8 @@ use tailwag_orm::{migration::*, AsSql};
 use tower_http::cors::{Any, CorsLayer};
 
 
+use crate::middleware::gateway;
+
 use super::{http::request::HttpRequestHandler, stats::RunResult};
 
 #[derive(Debug)]
@@ -54,7 +56,7 @@ impl WebServiceApplication {
     // TODO: This is just for dev, refactor once
     pub async fn new_with_auth(app_name: &str) -> Self {
         let mut app = Self::new(app_name);
-        // app.add_routes("/user", <crate::middleware::gateway::User as crate::traits::rest_api::BuildRoutes<crate::middleware::gateway::User>>::build_routes(provider).await);
+        // app.add_routes("/account", <crate::middleware::gateway::account as crate::traits::rest_api::BuildRoutes<crate::middleware::gateway::account>>::build_routes(provider).await);
         let session_provider = {
             let provider = 
             tailwag_orm::data_manager::PostgresDataProvider {
@@ -68,7 +70,7 @@ impl WebServiceApplication {
                 ,
                 _t: Default::default(),
             };
-            // self.add_routes("/session", crate::middleware::gateway::User::build_routes(provider.clone()).await);
+            // self.add_routes("/session", crate::middleware::gateway::account::build_routes(provider.clone()).await);
             provider.run_migrations().await.expect("Migrations failed. Aborting.");
 
             provider
@@ -129,9 +131,13 @@ impl WebServiceApplication {
         }
     }
 
-    /// Start the Application. By default, starts an HTTP server bound to `128.0.0.1::3001`.
+    /// Start the Application. By default, starts an HTTP server bound to `128.0.0.1::8081`.
     async fn run(self) -> RunResult {
         use env_logger::Env;
+
+        // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
+        // TODO
+        env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
         // TODO: This doesn't belong here
         let session_provider = {
@@ -147,14 +153,31 @@ impl WebServiceApplication {
                 ,
                 _t: Default::default(),
             };
-            // self.add_routes("/session", crate::middleware::gateway::User::build_routes(provider.clone()).await);
+            // self.add_routes("/session", crate::middleware::gateway::account::build_routes(provider.clone()).await);
+
+            provider
+        };
+        // TODO: This doesn't belong here
+        let account_provider: tailwag_orm::data_manager::PostgresDataProvider<crate::middleware::gateway::Account> = {
+            let provider = 
+            tailwag_orm::data_manager::PostgresDataProvider {
+                table_definition: <crate::middleware::gateway::Account as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                db_pool: PgPoolOptions::new()
+            .max_connections(1)
+            // TODO: Unhardcode things
+            .connect("postgres://postgres:postgres@127.0.0.1:5432/postgres")
+            .await
+            .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?")
+                ,
+                _t: Default::default(),
+            };
+            // self.add_routes("/session", crate::middleware::gateway::account::build_routes(provider.clone()).await);
+            let result = provider.run_migrations().await;
+            result.expect("Failed to run migrations.");
 
             provider
         };
 
-        // dotenv::dotenv().expect("Failed to load config from .env"); // Load environment variables.
-        // TODO
-        env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
         /////////////////////////////
         // Axum Web implementation //
@@ -168,6 +191,7 @@ impl WebServiceApplication {
         .serve(
             self.router
                 // Allow CORS - TODO: Fix this to be configurable / safe. Currently allows everything
+
                 .layer(
                     CorsLayer::new()
                         .allow_methods([
@@ -181,11 +205,19 @@ impl WebServiceApplication {
                         .allow_headers(Any),
                 )
                 // TODO: Refactor this out - all the auth code here for now
-                // .with_state()
-                .layer(axum::middleware::from_fn_with_state(
-                    session_provider.clone(),
-                    crate::middleware::gateway::add_session_to_request,
-                ))
+                .layer(
+                    axum::middleware::from_fn_with_state(
+                        session_provider.clone(),
+                        crate::middleware::gateway::AuthorizationGateway::add_session_to_request,
+                    )
+                )
+                .nest(
+                    "/auth",
+                    axum::Router::new()
+                        .route("/login", axum::routing::post(gateway::login))
+                        .route("/register", axum::routing::post(gateway::register))
+                        .with_state((account_provider.clone(), session_provider.clone()))
+                )
                 .into_make_service(),
         )
         .await

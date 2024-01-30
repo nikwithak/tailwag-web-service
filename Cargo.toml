@@ -59,6 +59,9 @@ sqlx = { version = "0.7.1", features = [
 ] }
 tower-http = { version = "0.4.4", features = ["cors"] }
 tailwag_forms = { version = "0.1.0", path = "../forms" }
+jsonwebtoken = "9.2.0"
+argon2 = "0.5.3"
+tower = "0.4.13"
 
 [features]
 default = ["development"]
