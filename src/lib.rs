@@ -1,6 +1,6 @@
 pub mod application;
+pub mod auth;
 pub mod errors;
-pub mod middleware;
 pub mod traits;
 
 pub fn add(

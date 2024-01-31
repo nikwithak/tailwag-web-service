@@ -12,8 +12,13 @@ use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::Database;
-use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
+use tailwag_orm::{
+    data_manager::{traits::DataProvider, PostgresDataProvider},
+    queries::filterable_types::FilterEq,
+};
 use uuid::Uuid;
+
+use crate::auth::filter_helper::AccountFilterHelper;
 
 const JWT_SECRET: &'static str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 
@@ -116,12 +121,11 @@ impl AuthorizationGateway {
                 request.headers().get("Cookie").and_then(|header| header.to_str().ok())
             {
                 let session_cookie = dbg!(cookie)
-                    .split(";")
+                    .split(';')
                     .map(|cookie| cookie.trim())
                     .find(|cookie| cookie.starts_with("_id"))
-                    .and_then(|cookie| cookie.split("=").last())
+                    .and_then(|cookie| cookie.split('=').last())
                     .map(|cookie| cookie.trim().into());
-                // .map(|k|);
                 session_cookie
             } else {
                 None
@@ -174,7 +178,7 @@ impl AuthorizationGateway {
 // The actual middleware function
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
-    email_address: Uuid, // TODO: Why is this a UUID? (because I need to fix filterability on my ORM)
+    email_address: String, // TODO: Why is this a UUID? (because I need to fix filterability on my ORM)
     password: String,
 }
 
@@ -191,14 +195,30 @@ pub async fn login(
         tailwag::orm::data_manager::PostgresDataProvider<Account>,
         tailwag::orm::data_manager::PostgresDataProvider<Session>,
     )>,
-    // axum::extract::State(sessions): axum::extract::State<
-    //     tailwag::orm::data_manager::PostgresDataProvider<Session>,
-    // >,
     axum::Json(creds): axum::Json<LoginRequest>,
-    // accounts: State<PostgresDataProvider<account>>,
 ) -> Response {
     // TODO: Code smell below, lots of nested bits. Refactor opportunity
-    let account = match accounts.get(creds.email_address).await {
+    // Definitely need to simplify this.
+    // let account = match accounts.get(creds.email_address).await {
+    macro_rules! filter {
+        ($item:ident.$val:ident ==) => {};
+    }
+    filter!(account.id ==);
+
+    // let account = filter!(accounts.email_address == );
+    // accounts.all().filter("id").await;
+    // let account = match accounts.filter(creds.email_address).await {
+    let account = accounts
+        .all() // TODO: Ditch this in favor of straight "get" or "filter" functions off the datamanager
+        .await // TODO: Ditch this "await" since all() doesn't have to be async
+        .unwrap() // TODO: Query shouldn't fail? Don't tink I need a Result here
+        .with_filter(|acct: AccountFilterHelper| acct.email_address.eq(&creds.email_address))
+        .execute()
+        .await
+        // TODO: Need to update get() to ensure only one exists
+        .map(|mut vec| vec.pop());
+    // let account = accounts.get(creds.email_address).await;
+    match account {
         Ok(Some(account)) => {
             match argon2::Argon2::default().verify_password(
                 creds.password.as_bytes(),

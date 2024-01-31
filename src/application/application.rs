@@ -6,7 +6,7 @@ use tailwag_orm::{migration::*, AsSql};
 use tower_http::cors::{Any, CorsLayer};
 
 
-use crate::middleware::gateway;
+use crate::auth::gateway;
 
 use super::{http::request::HttpRequestHandler, stats::RunResult};
 
@@ -60,7 +60,7 @@ impl WebServiceApplication {
         let session_provider = {
             let provider = 
             tailwag_orm::data_manager::PostgresDataProvider {
-                table_definition: <crate::middleware::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                table_definition: <crate::auth::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
                 db_pool: PgPoolOptions::new()
             .max_connections(1)
             // TODO: Unhardcode things
@@ -75,7 +75,7 @@ impl WebServiceApplication {
 
             provider
         };
-        app = app.add_routes("/session", <crate::middleware::gateway::Session as crate::traits::rest_api::BuildRoutes<crate::middleware::gateway::Session>>::build_routes(session_provider).await);
+        app = app.add_routes("/session", <crate::auth::gateway::Session as crate::traits::rest_api::BuildRoutes<crate::auth::gateway::Session>>::build_routes(session_provider).await);
         app
     }
 
@@ -143,7 +143,7 @@ impl WebServiceApplication {
         let session_provider = {
             let provider = 
             tailwag_orm::data_manager::PostgresDataProvider {
-                table_definition: <crate::middleware::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                table_definition: <crate::auth::gateway::Session as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
                 db_pool: PgPoolOptions::new()
             .max_connections(1)
             // TODO: Unhardcode things
@@ -158,10 +158,10 @@ impl WebServiceApplication {
             provider
         };
         // TODO: This doesn't belong here
-        let account_provider: tailwag_orm::data_manager::PostgresDataProvider<crate::middleware::gateway::Account> = {
+        let account_provider: tailwag_orm::data_manager::PostgresDataProvider<crate::auth::gateway::Account> = {
             let provider = 
             tailwag_orm::data_manager::PostgresDataProvider {
-                table_definition: <crate::middleware::gateway::Account as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
+                table_definition: <crate::auth::gateway::Account as tailwag_orm::data_manager::GetTableDefinition>::get_table_definition(),
                 db_pool: PgPoolOptions::new()
             .max_connections(1)
             // TODO: Unhardcode things
@@ -194,7 +194,7 @@ impl WebServiceApplication {
                 .layer(
                     axum::middleware::from_fn_with_state(
                         session_provider.clone(),
-                        crate::middleware::gateway::AuthorizationGateway::add_session_to_request,
+                        crate::auth::gateway::AuthorizationGateway::add_session_to_request,
                     )
                 )
                 .nest(
