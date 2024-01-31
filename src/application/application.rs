@@ -190,20 +190,6 @@ impl WebServiceApplication {
         )
         .serve(
             self.router
-                // Allow CORS - TODO: Fix this to be configurable / safe. Currently allows everything
-
-                .layer(
-                    CorsLayer::new()
-                        .allow_methods([
-                            hyper::Method::GET,
-                            hyper::Method::POST,
-                            hyper::Method::PATCH,
-                            hyper::Method::OPTIONS,
-                            hyper::Method::DELETE,
-                        ])
-                        .allow_origin(Any)
-                        .allow_headers(Any),
-                )
                 // TODO: Refactor this out - all the auth code here for now
                 .layer(
                     axum::middleware::from_fn_with_state(
@@ -217,6 +203,20 @@ impl WebServiceApplication {
                         .route("/login", axum::routing::post(gateway::login))
                         .route("/register", axum::routing::post(gateway::register))
                         .with_state((account_provider.clone(), session_provider.clone()))
+                )
+                // Allow CORS - TODO: Fix this to be configurable / safe. Currently allows everything
+
+                .layer(
+                    CorsLayer::new()
+                        .allow_methods([
+                            hyper::Method::GET,
+                            hyper::Method::POST,
+                            hyper::Method::PATCH,
+                            hyper::Method::OPTIONS,
+                            hyper::Method::DELETE,
+                        ])
+                        .allow_origin(Any)
+                        .allow_headers(Any),
                 )
                 .into_make_service(),
         )

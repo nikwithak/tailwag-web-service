@@ -1,10 +1,13 @@
-use std::time::Duration;
+use std::{borrow::BorrowMut, time::Duration};
 
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHasher, PasswordVerifier,
 };
-use axum::response::{IntoResponse, Response};
+use axum::{
+    http::HeaderValue,
+    response::{IntoResponse, Response},
+};
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -99,58 +102,84 @@ impl AuthorizationGateway {
         next: axum::middleware::Next<B>,
         // ) -> String
     ) -> Result<impl axum::response::IntoResponse, hyper::StatusCode> {
-        match request
-        .headers()
-        .get("Authorization")
-        .and_then(|header| header.to_str().ok())
-        .and_then(|header| header.strip_prefix("Bearer ")) // Accept Bearer tokens only. This is a quick one-liner, but when other patterns are needed then break out to separate function
-        // .and_then(|header| Uuid::try_from(header).ok())
-    {
-        Some(authz_header) => {
-            // TODO: Shouldn't use UUIDs for session, use encrypted JWTs instead, maybe? Or just random token
-            let decoded_jwt = match jsonwebtoken::decode::<JwtClaims>(
-                &authz_header,
-                &jsonwebtoken::DecodingKey::from_secret(JWT_SECRET.as_ref()),
-                &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
-            ) {
-                Ok(jwt) => jwt,
-                Err(e) => {
-                    println!("error: {}",e);
-                    return Err(hyper::StatusCode::UNAUTHORIZED);
-                }
-            };
-            let JwtClaims {session_id, .. }= decoded_jwt.claims;
-            log::debug!("SESSION_ID: {}", &session_id);
-
-            match sessions.get(session_id).await {
-                Ok(Some(session)) => {
-                    log::debug!("Session found! {:?}", &session);
-                    request.extensions_mut().insert(session);
-                    Ok(next.run(request).await)
-                },
-                Ok(None) => Err(hyper::StatusCode::UNAUTHORIZED),
-                Err(e) => {
-                    // NOTE:
-                    log::error!("An error occurred while authorizing the account: {}", e);
-                    Err(hyper::StatusCode::UNAUTHORIZED)
-                },
+        // First, log request:
+        log::info!("{} {} {:?}", request.method(), request.uri(), request.headers());
+        fn get_authz_token<B>(request: &axum::http::Request<B>) -> Option<String> {
+            if let Some(header) = request
+                .headers()
+                .get("Authorization")
+                .and_then(|header| header.to_str().ok())
+                .and_then(|header| header.strip_prefix("Bearer "))
+            {
+                Some(header.to_owned())
+            } else if let Some(cookie) =
+                request.headers().get("Cookie").and_then(|header| header.to_str().ok())
+            {
+                let session_cookie = dbg!(cookie)
+                    .split(";")
+                    .map(|cookie| cookie.trim())
+                    .find(|cookie| cookie.starts_with("_id"))
+                    .and_then(|cookie| cookie.split("=").last())
+                    .map(|cookie| cookie.trim().into());
+                // .map(|k|);
+                session_cookie
+            } else {
+                None
             }
-        },
-        None => Err(hyper::StatusCode::UNAUTHORIZED), // TODO: Fix this to be more customizable / redirects.
-                                                      // TODO: Whitelist / evalate rules?
-    }
+        }
+        let authz_token = get_authz_token(&request);
+
+        match authz_token {
+            Some(authz_header) => {
+                let decoded_jwt = match jsonwebtoken::decode::<JwtClaims>(
+                    &authz_header,
+                    &jsonwebtoken::DecodingKey::from_secret(JWT_SECRET.as_ref()),
+                    &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+                ) {
+                    Ok(jwt) => jwt,
+                    Err(e) => {
+                        println!("error: {}", e);
+                        return Err(hyper::StatusCode::UNAUTHORIZED);
+                    },
+                };
+                let JwtClaims {
+                    session_id,
+                    ..
+                } = decoded_jwt.claims;
+                log::debug!("SESSION_ID: {}", &session_id);
+
+                match sessions.get(session_id).await {
+                    Ok(Some(session)) => {
+                        log::debug!("Session found! {:?}", &session);
+                        {
+                            // Here's where we add it to the request
+                            request.extensions_mut().insert(session);
+                        }
+                        Ok(next.run(request).await)
+                    },
+                    Ok(None) => Err(hyper::StatusCode::UNAUTHORIZED),
+                    Err(e) => {
+                        // NOTE:
+                        log::error!("An error occurred while authorizing the account: {}", e);
+                        Err(hyper::StatusCode::UNAUTHORIZED)
+                    },
+                }
+            },
+            None => Err(hyper::StatusCode::UNAUTHORIZED), // TODO: Fix this to be more customizable / redirects.
+                                                          // TODO: Whitelist / evalate rules?
+        }
     }
 }
 
 // The actual middleware function
-
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
-    email_address: Uuid, // TODO: Why is this a UUID?
+    email_address: Uuid, // TODO: Why is this a UUID? (because I need to fix filterability on my ORM)
     password: String,
 }
 
-const SESSION_LENGTH_MS: u64 = 360000;
+// TODO: Move to config
+const SESSION_LENGTH_MS: u64 = 3600000;
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginResponse {
@@ -168,6 +197,7 @@ pub async fn login(
     axum::Json(creds): axum::Json<LoginRequest>,
     // accounts: State<PostgresDataProvider<account>>,
 ) -> Response {
+    // TODO: Code smell below, lots of nested bits. Refactor opportunity
     let account = match accounts.get(creds.email_address).await {
         Ok(Some(account)) => {
             match argon2::Argon2::default().verify_password(
@@ -177,7 +207,8 @@ pub async fn login(
                 Ok(()) => {
                     let account = Account {
                         passhash: "".into(),
-                        ..account // roles: vec![AuthorizationRole::Admin],
+                        // roles: vec![AuthorizationRole::Admin],
+                        ..account
                     };
                     let Ok(new_session) = sessions
                         .create(Session {
@@ -201,11 +232,23 @@ pub async fn login(
                         &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET.as_ref()),
                     )
                     .expect("Couldn't encode JWT");
-                    return axum::Json(LoginResponse {
-                        access: jwt,
+
+                    let mut response = axum::Json(LoginResponse {
+                        access: jwt.clone(),
                         refresh: "".into(),
                     })
                     .into_response();
+                    let cookie_header_val = format!(
+                        // "_id={}; HttpOnly; Secure; Domain={}; SameSite=Strict",
+                        "_id={}; HttpOnly; Domain={}; Path={}",
+                        jwt, "localhost", "/"
+                    );
+                    response.headers_mut().insert(
+                        "Set-Cookie",
+                        HeaderValue::from_bytes(cookie_header_val.as_bytes())
+                            .expect("Failed to set cookie."),
+                    );
+                    return response.into_response();
                 },
                 Err(_) => {
                     log::warn!(
@@ -255,9 +298,11 @@ pub async fn register(
         })
         .await
         .unwrap();
-    Ok(axum::Json(RegisterResponse {
+
+    let response = axum::Json(RegisterResponse {
         account_id: account.id,
-    }))
+    });
+    Ok(response)
 }
 
 // pub async fn login_page(
