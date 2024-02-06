@@ -6,6 +6,7 @@ use tailwag_orm::{migration::*, AsSql};
 use tower_http::cors::{Any, CorsLayer};
 
 
+
 use crate::auth::gateway;
 
 use super::{http::request::HttpRequestHandler, stats::RunResult};
@@ -22,7 +23,7 @@ pub struct WebServiceApplication {
 }
 
 // TODO: PReferences for thigns like:
-//  * trailling slash / no trailing slash
+//  * trailing slash / no trailing slash
 //  * Plural resource names or singular
 
 pub async fn hello(t: String) -> String {
@@ -43,6 +44,7 @@ impl Default for WebServiceApplication {
         }
     }
 }
+
 
 /// The base class for building an application. See examples for usage.
 impl WebServiceApplication {
@@ -71,11 +73,11 @@ impl WebServiceApplication {
                 _t: Default::default(),
             };
             // self.add_routes("/session", crate::middleware::gateway::account::build_routes(provider.clone()).await);
-            provider.run_migrations().await.expect("Migrations failed. Aborting.");
+            provider.clone().run_migrations().await.expect("Migrations failed. Aborting.");
 
             provider
         };
-        app = app.add_routes("/session", <crate::auth::gateway::Session as crate::traits::rest_api::BuildRoutes<crate::auth::gateway::Session>>::build_routes(session_provider).await);
+        app = app.add_routes("/session", <crate::auth::gateway::Session as crate::traits::rest_api::BuildRoutes<crate::auth::gateway::Session>>::build_routes(session_provider));
         app
     }
 
@@ -101,6 +103,7 @@ impl WebServiceApplication {
         // function: T,
         handler: T,
     ) -> Self {
+        todo!();
         self
     }
 }
@@ -172,7 +175,7 @@ impl WebServiceApplication {
                 _t: Default::default(),
             };
             // self.add_routes("/session", crate::middleware::gateway::account::build_routes(provider.clone()).await);
-            let result = provider.run_migrations().await;
+            let result = provider.clone().run_migrations().await;
             result.expect("Failed to run migrations.");
 
             provider
@@ -299,11 +302,12 @@ impl WebServiceApplication {
         // TODO: Macro this?
         // TODO: Move this to a separate function for easy REMOVAL of template / boilerplate from the files. Clean up visually, make files small & simple <3
         // TODO: Migrate this to a module build_routes() call
-        // self.router =Router::new()
+        // self.router = Router::new()
         // .route("/", get(data_fetcher::get_food_truck_events))
         // .nest("/food_truck", food_truck::create_routes(pool.clone()))
         // .nest("/brewery", brewery::create_routes(pool.clone()));
         // ;
+
         let result = self.run().await;
         log::info!("{:?}", result);
     }

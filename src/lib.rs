@@ -2,6 +2,7 @@ pub mod application;
 pub mod auth;
 pub mod errors;
 pub mod traits;
+mod components;
 
 pub fn add(
     left: usize,

@@ -1,4 +1,5 @@
-use std::{borrow::BorrowMut, time::Duration};
+use std::time::Duration;
+use tailwag_orm::queries::filterable_types::FilterEq;
 
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
@@ -11,16 +12,11 @@ use axum::{
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use sqlx::Database;
-use tailwag_orm::{
-    data_manager::{traits::DataProvider, PostgresDataProvider},
-    queries::filterable_types::FilterEq,
-};
+use tailwag_macros::Filterable;
+use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
-use crate::auth::filter_helper::AccountFilterHelper;
-
-const JWT_SECRET: &'static str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
+const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 
 mod tailwag {
     pub use crate as web;
@@ -38,9 +34,8 @@ mod tailwag {
     tailwag_macros::Insertable,
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
-    // tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
-    // tailwag::macros::AsEguiForm, // Renders the object into an editable form for an egui application.
-    // tailwag_forms::forms::macros::GetForm,
+    Filterable,
+    tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
     tailwag::forms::macros::GetForm,
 )]
 pub struct Account {
@@ -66,6 +61,7 @@ impl tailwag::orm::data_manager::rest_api::Id for Account {
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
     tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
+    tailwag_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
 pub struct Session {
@@ -108,6 +104,7 @@ impl AuthorizationGateway {
         // ) -> String
     ) -> Result<impl axum::response::IntoResponse, hyper::StatusCode> {
         // First, log request:
+        // TODO: Middleware this somewhere else, inject Request ID, etc.
         log::info!("{} {} {:?}", request.method(), request.uri(), request.headers());
         fn get_authz_token<B>(request: &axum::http::Request<B>) -> Option<String> {
             if let Some(header) = request
@@ -212,12 +209,11 @@ pub async fn login(
         .all() // TODO: Ditch this in favor of straight "get" or "filter" functions off the datamanager
         .await // TODO: Ditch this "await" since all() doesn't have to be async
         .unwrap() // TODO: Query shouldn't fail? Don't tink I need a Result here
-        .with_filter(|acct: AccountFilterHelper| acct.email_address.eq(&creds.email_address))
+        .with_filter(|acct| acct.email_address.eq(&creds.email_address))
         .execute()
         .await
         // TODO: Need to update get() to ensure only one exists
         .map(|mut vec| vec.pop());
-    // let account = accounts.get(creds.email_address).await;
     match account {
         Ok(Some(account)) => {
             match argon2::Argon2::default().verify_password(
@@ -259,16 +255,16 @@ pub async fn login(
                     })
                     .into_response();
                     let cookie_header_val = format!(
-                        // "_id={}; HttpOnly; Secure; Domain={}; SameSite=Strict",
-                        "_id={}; HttpOnly; Domain={}; Path={}",
-                        jwt, "localhost", "/"
+                        "_id={}; HttpOnly; SameSite=None",
+                        // "_id={}; HttpOnly; Domain={}; Path={}",
+                        jwt,
                     );
                     response.headers_mut().insert(
                         "Set-Cookie",
                         HeaderValue::from_bytes(cookie_header_val.as_bytes())
                             .expect("Failed to set cookie."),
                     );
-                    return response.into_response();
+                    response.into_response()
                 },
                 Err(_) => {
                     log::warn!(
@@ -278,16 +274,16 @@ pub async fn login(
                             ..account
                         }
                     );
-                    return StatusCode::NOT_FOUND.into_response();
+                    StatusCode::NOT_FOUND.into_response()
                 },
             }
         },
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             log::error!("Error occurred while trying to fetch account: {}", e);
-            return StatusCode::BAD_REQUEST.into_response();
+            StatusCode::BAD_REQUEST.into_response()
         },
-    };
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -2,9 +2,8 @@ use axum::{async_trait, Router};
 use serde::Deserialize;
 use tailwag_orm::{data_manager::PostgresDataProvider, queries::Insertable};
 
-#[async_trait]
 pub trait BuildRoutes<T: Insertable> {
-    async fn build_routes(data_manager: PostgresDataProvider<T>) -> Router;
+    fn build_routes(data_manager: PostgresDataProvider<T>) -> Router;
 }
 
 pub trait BuildCreateRoute<'a>
@@ -20,7 +19,7 @@ where
     Self: Sized,
 {
     type Request: Into<Self> + Deserialize<'a>;
-    fn build_list_get_route() -> Router;
+    fn build_get_item_route() -> Router;
 }
 
 pub trait BuildListGetRoute
@@ -29,31 +28,6 @@ where
 {
     fn build_list_get_route() -> Router;
 }
-
-// // TODO: macro for the function to wrap in `Query` or `Json` automatically, so it can just be a decoration on a logic function.
-// pub async fn post(
-//     State(data_manager): State<PostgresDataProvider<T>>,
-//     axum:textract::Form(request): axum::extract::Form<CreateFoodTruckRequest>,
-//) -> Json<FoodTruck> {
-//     let truck = FoodTruck {
-//         id: Uuid::new_v4(),
-//         name: request.name.clone(),
-//         style: request.style.clone(),
-//         is_open_late: request.is_open_late.clone(),
-//     };
-//     data_manager.create(&truck).await.expect("Unable to create object");
-//     Json(truck)
-// }
-
-// // TODO: macro for the function to wrap in `Query` or `Json` automatically, so it can just be a macro over a logic function.
-// pub async fn get_food_trucks(
-//     State(data_manager): State<FoodTruckDataManager>,
-//     // Query(request): Query<GetFoodTrucksRequest>,
-// ) -> Json<Vec<FoodTruck>> {
-//     let q = data_manager.all();
-//     let results = q.execute().await.unwrap();
-//     Json(results)
-// }
 
 // pub async fn form() -> Html<String> {
 //     Html(
