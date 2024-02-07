@@ -7,8 +7,14 @@ use std::{
     pin::Pin,
 };
 
-use axum::Router;
+use axum::{
+    extract::State,
+    response::{IntoResponse, Response},
+    routing::post,
+    Form, Router,
+};
 use env_logger::Env;
+use hyper::StatusCode;
 use log;
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
@@ -17,9 +23,10 @@ use sqlx::{
 use tailwag_forms::GetForm;
 use tailwag_orm::{
     data_manager::{
-        traits::get_data_provider::ConnectPostgres, GetTableDefinition, PostgresDataProvider,
+        traits::{get_data_provider::ConnectPostgres, DataProvider},
+        GetTableDefinition, PostgresDataProvider,
     },
-    queries::{Deleteable, Updateable},
+    queries::{Deleteable, Insertable, Updateable},
 };
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
@@ -53,7 +60,7 @@ impl WebServiceState for Ready {}
 impl WebServiceState for Building {}
 
 type ResourceConfigurator = (
-    // TODO: About time to actually struct this out.
+    // TODO: Actually struct this out the next time you touch it.
     Box<
         dyn Fn(
                 Pool<Postgres>,
@@ -66,9 +73,63 @@ type ResourceConfigurator = (
     >,
     String,
 );
+
+#[derive(Default)]
+pub struct DataProviders {
+    map: HashMap<TypeId, Box<dyn Any + Send>>,
+}
+impl DataProviders {
+    pub fn get<T>(&self) -> Option<PostgresDataProvider<T>>
+    where
+        T: tailwag_orm::queries::Insertable
+            + Deleteable
+            + tailwag_orm::queries::Updateable
+            + Sync
+            + Send
+            + for<'r> FromRow<'r, PgRow>
+            + Clone
+            + 'static,
+    {
+        self.map
+            .get(&TypeId::of::<T>())
+            .map(|any| {
+                (*any)
+                    .downcast_ref::<PostgresDataProvider<T>>()
+                    .expect("FATAL ERROR: Unable to downcast data provider type. This is either a bug,
+                            or you are using this library in a way that is currently unsupported (Avoid calling
+                            `put_any_unchecked`). Please file an issue at https://github.com/nikwithak/tailwag")
+            })
+            .map(|boxed| (*boxed).clone())
+    }
+
+    fn put<T>(
+        &mut self,
+        provider: PostgresDataProvider<T>,
+    ) where
+        T: Insertable + Send + 'static + Sync,
+    {
+        self.map.insert(TypeId::of::<T>(), Box::new(provider));
+    }
+
+    #[deprecated(note = "
+        This function exists only as a workaround to the current approach for building an application.
+        Once I've refactored that to be more maintainable and less spaghettiy, this function can be removed.
+        Improper use of this function may cause difficulty debugging or other errors down the line.
+
+        Instead, use [DataProviders::put]
+    ")]
+    fn put_any_unchecked(
+        &mut self,
+        type_id: TypeId,
+        provider: Box<dyn Any + Send>,
+    ) {
+        self.map.insert(type_id, provider);
+    }
+}
+
 // TODO: Separate definition from config
 #[allow(private_bounds)]
-pub struct WebServiceBuilder<State: WebServiceState> {
+pub struct WebService<State: WebServiceState> {
     config: WebServiceConfig,
     _state: PhantomData<State>,
     /// This should ONLY hold DataProvider<T> types - using Any because there is no
@@ -76,11 +137,11 @@ pub struct WebServiceBuilder<State: WebServiceState> {
     /// underlying types.
     resource_configurators: Vec<ResourceConfigurator>, // TODO: This should only exist pre-Ready state
     router: Router,
-    data_providers: HashMap<TypeId, Box<dyn Any + Send>>,
+    data_providers: DataProviders,
 }
 
 #[cfg(feature = "development")]
-impl Default for WebServiceBuilder<Building> {
+impl Default for WebService<Building> {
     fn default() -> Self {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         dotenv::dotenv().ok();
@@ -102,7 +163,7 @@ impl Default for WebServiceBuilder<Building> {
     }
 }
 
-impl WebServiceBuilder<Building> {
+impl WebService<Building> {
     // Builder functions
     pub fn new(app_name: &str) -> Self {
         let mut builder = Self::default();
@@ -119,6 +180,7 @@ impl WebServiceBuilder<Building> {
             + Send
             + Clone
             + Sync
+            + std::fmt::Debug
             + Unpin
             + Updateable
             + GetForm
@@ -127,9 +189,14 @@ impl WebServiceBuilder<Building> {
     {
         self.resource_configurators.push((
             // This closure is run when the application starts to connect all the things
+            // TODO: This got really messy with async and closures and generic-over-generics.
+            // need to clean this up - try factoring the async out everywhere you can (data provider setup, etc), and
+            // we can change the ::with_resource<T>()... to actually create the types.
             Box::new(|pool: Pool<Postgres>| {
                 let provider = T::connect_postgres(pool);
                 let resource_name = &T::get_table_definition().table_name;
+                let mut providers = DataProviders::default();
+                providers.put(provider.clone());
 
                 fn save_form_def<F: GetForm>(filepath: &str) -> Result<(), std::io::Error> {
                     let form_def = serde_json::to_string(&F::get_form())?;
@@ -140,10 +207,12 @@ impl WebServiceBuilder<Building> {
                 }
                 save_form_def::<T>(&format!("./out/forms/{}.json", resource_name))
                     .expect("Failed to save form definition to disk, aborting.");
-
                 (
                     TypeId::of::<T>(),
                     Box::new(provider.clone()),
+                    // Uggggh... changing it to accept a generic "DataProviders" kinda screwed this.
+                    // I really need to let each type give its "to_service" function and do all the prep
+                    // work when it's added.
                     T::build_routes(provider.clone()),
                     // TODO: Document this and maybe macro it down the line
                     Box::new(move || {
@@ -156,7 +225,7 @@ impl WebServiceBuilder<Building> {
         self
     }
 
-    pub async fn build_service(mut self) -> WebServiceBuilder<Ready> {
+    pub async fn build_service(mut self) -> WebService<Ready> {
         let mut resources = self.resource_configurators;
         self.resource_configurators = Vec::new();
         let db_pool = PgPoolOptions::new()
@@ -168,14 +237,14 @@ impl WebServiceBuilder<Building> {
         while let Some((configure_resource, route_name)) = resources.pop() {
             let (type_id, provider, router, run_migrations) = configure_resource(db_pool.clone());
             // let (type_id, provider, router) = configure_resource(db_pool.clone());
-            self.data_providers.insert(type_id, provider);
+            self.data_providers.put_any_unchecked(type_id, provider);
             if self.config.migrate_on_init {
                 run_migrations().await.expect("Failed to run migrations - aborting");
             }
             self.router = self.router.nest(&route_name, router);
         }
 
-        WebServiceBuilder::<Ready> {
+        WebService::<Ready> {
             config: self.config,
             resource_configurators: Vec::new(),
             data_providers: self.data_providers,
@@ -185,7 +254,8 @@ impl WebServiceBuilder<Building> {
     }
 }
 
-impl WebServiceBuilder<Ready> {
+impl WebService<Ready> {
+    /// Wrapper for `self.data_providers.get_data_provider<T>(&self)`
     pub fn get_data_provider<T>(&self) -> Option<PostgresDataProvider<T>>
     where
         T: tailwag_orm::queries::Insertable
@@ -197,18 +267,11 @@ impl WebServiceBuilder<Ready> {
             + Clone
             + 'static,
     {
-        self.data_providers
-            .get(&TypeId::of::<T>())
-            .map(|any| {
-                (*any)
-                    .downcast_ref::<PostgresDataProvider<T>>()
-                    .expect("FATAL ERROR: Unable to downcast data provider type. This is either a bug, or you are using this library in a way that is currently unsupported. Please file an issue at https://github.com/nikwithak/tailwag")
-            })
-            .map(|boxed| (*boxed).clone())
+        self.data_providers.get::<T>()
     }
 }
 
-impl WebServiceBuilder<Ready> {
+impl WebService<Ready> {
     // TODO: Clean this up a bit
     fn print_welcome_message(&self) {
         log::info!(
@@ -243,6 +306,7 @@ impl WebServiceBuilder<Ready> {
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
         log::info!("Starting service on {}", &bind_addr);
         let router = self.router.clone();
+
         axum::Server::bind(
             &bind_addr
                 .parse()
@@ -250,6 +314,12 @@ impl WebServiceBuilder<Ready> {
         )
         .serve(
             router
+                // .route(
+                //     "/brewery/{id]/fetch",
+                //     post(
+                //         temp_webhook
+                //     ),
+                // )
                 // TODO: Refactor this out - all the auth code here for now
                 .layer(axum::middleware::from_fn_with_state(
                     self.get_data_provider::<Session>().unwrap(),

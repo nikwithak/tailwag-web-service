@@ -1,6 +1,11 @@
 use axum::{async_trait, Router};
 use serde::Deserialize;
-use tailwag_orm::{data_manager::PostgresDataProvider, queries::Insertable};
+use tailwag_orm::{
+    data_manager::{traits::DataProvider, PostgresDataProvider},
+    queries::Insertable,
+};
+
+use crate::application::DataProviders;
 
 pub trait BuildRoutes<T: Insertable> {
     fn build_routes(data_manager: PostgresDataProvider<T>) -> Router;

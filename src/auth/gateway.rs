@@ -1,5 +1,5 @@
 use std::time::Duration;
-use tailwag_orm::queries::filterable_types::FilterEq;
+use tailwag_orm::{data_manager::traits::WithFilter, queries::filterable_types::FilterEq};
 
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
@@ -43,6 +43,7 @@ pub struct Account {
     email_address: String,
     passhash: String,
 }
+
 impl tailwag::orm::data_manager::rest_api::Id for Account {
     fn id(&self) -> &uuid::Uuid {
         &self.id
@@ -149,7 +150,7 @@ impl AuthorizationGateway {
                 } = decoded_jwt.claims;
                 log::debug!("SESSION_ID: {}", &session_id);
 
-                match sessions.get(session_id).await {
+                match sessions.get(|sess| sess.id.eq(session_id)).await {
                     Ok(Some(session)) => {
                         log::debug!("Session found! {:?}", &session);
                         {
@@ -161,7 +162,7 @@ impl AuthorizationGateway {
                     Ok(None) => Err(hyper::StatusCode::UNAUTHORIZED),
                     Err(e) => {
                         // NOTE:
-                        log::error!("An error occurred while authorizing the account: {}", e);
+                        log::error!("An error occurred while authorizing the account: {:?}", e);
                         Err(hyper::StatusCode::UNAUTHORIZED)
                     },
                 }
@@ -206,9 +207,6 @@ pub async fn login(
     // accounts.all().filter("id").await;
     // let account = match accounts.filter(creds.email_address).await {
     let account = accounts
-        .all() // TODO: Ditch this in favor of straight "get" or "filter" functions off the datamanager
-        .await // TODO: Ditch this "await" since all() doesn't have to be async
-        .unwrap() // TODO: Query shouldn't fail? Don't tink I need a Result here
         .with_filter(|acct| acct.email_address.eq(&creds.email_address))
         .execute()
         .await
