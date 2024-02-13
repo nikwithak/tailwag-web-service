@@ -11,7 +11,7 @@ use axum::{
     extract::State,
     response::{IntoResponse, Response},
     routing::post,
-    Form, Router,
+    Router,
 };
 use env_logger::Env;
 use hyper::StatusCode;
@@ -23,8 +23,7 @@ use sqlx::{
 use tailwag_forms::GetForm;
 use tailwag_orm::{
     data_manager::{
-        traits::{get_data_provider::ConnectPostgres, DataProvider},
-        GetTableDefinition, PostgresDataProvider,
+        traits::get_data_provider::ConnectPostgres, GetTableDefinition, PostgresDataProvider,
     },
     queries::{Deleteable, Insertable, Updateable},
 };
@@ -106,7 +105,7 @@ impl DataProviders {
         &mut self,
         provider: PostgresDataProvider<T>,
     ) where
-        T: Insertable + Send + 'static + Sync,
+        T: Insertable + Send + 'static,
     {
         self.map.insert(TypeId::of::<T>(), Box::new(provider));
     }
@@ -180,7 +179,6 @@ impl WebService<Building> {
             + Send
             + Clone
             + Sync
-            + std::fmt::Debug
             + Unpin
             + Updateable
             + GetForm

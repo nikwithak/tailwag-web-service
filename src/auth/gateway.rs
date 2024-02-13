@@ -16,8 +16,9 @@ use tailwag_macros::Filterable;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
-const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
+use crate::traits::rest_api::BuildRoutes;
 
+const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 mod tailwag {
     pub use crate as web;
     pub use tailwag_forms as forms;
@@ -35,7 +36,7 @@ mod tailwag {
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
     Filterable,
-    tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
+    // tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
     tailwag::forms::macros::GetForm,
 )]
 pub struct Account {
@@ -44,12 +45,23 @@ pub struct Account {
     passhash: String,
 }
 
+impl BuildRoutes<Account> for Account {
+    fn build_routes() -> axum::Router {
+        todo!()
+    }
+}
+
 impl tailwag::orm::data_manager::rest_api::Id for Account {
     fn id(&self) -> &uuid::Uuid {
         &self.id
     }
 }
 
+impl BuildRoutes<Session> for Session {
+    fn build_routes() -> axum::Router {
+        todo!()
+    }
+}
 #[derive(
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
@@ -61,7 +73,7 @@ impl tailwag::orm::data_manager::rest_api::Id for Account {
     tailwag_macros::Insertable,
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
-    tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
+    // tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
     tailwag_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
@@ -98,6 +110,7 @@ struct JwtClaims {
 }
 
 impl AuthorizationGateway {
+    // TODO: Clean this up. Looks a bit too complex / a few different things going on
     pub async fn add_session_to_request<B>(
         axum::extract::State(sessions): axum::extract::State<PostgresDataProvider<Session>>,
         mut request: axum::http::Request<B>,
@@ -106,7 +119,7 @@ impl AuthorizationGateway {
     ) -> Result<impl axum::response::IntoResponse, hyper::StatusCode> {
         // First, log request:
         // TODO: Middleware this somewhere else, inject Request ID, etc.
-        log::info!("{} {} {:?}", request.method(), request.uri(), request.headers());
+        log::debug!("{} {} {:?}", request.method(), request.uri(), request.headers());
         fn get_authz_token<B>(request: &axum::http::Request<B>) -> Option<String> {
             if let Some(header) = request
                 .headers()
@@ -318,14 +331,3 @@ pub async fn register(
     });
     Ok(response)
 }
-
-// pub async fn login_page(
-//     axum::extract::State(accounts): axum::extract::State<
-//         tailwag::orm::data_manager::PostgresDataProvider<account>,
-//     >,
-//     axum::Json(creds): axum::Json<LoginRequest>,
-//     // accounts: State<PostgresDataProvider<account>>,
-// ) -> Html<String> {
-//     // accounts.
-//     axum::Json("".into())
-// }

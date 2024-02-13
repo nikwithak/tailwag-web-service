@@ -1,8 +1,9 @@
 #[allow(clippy::module_inception)]
-mod application;
-pub use application::*;
-mod http;
+mod web_service;
+pub use web_service::*;
+pub mod http;
 pub mod stats;
+pub mod threads;
 
 mod webhook;
 pub use webhook::*;

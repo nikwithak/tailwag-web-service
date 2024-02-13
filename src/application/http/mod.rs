@@ -1,5 +1,4 @@
-pub mod header;
-pub mod middleware;
+pub mod headers;
 pub mod request;
 pub mod response;
 pub mod route;

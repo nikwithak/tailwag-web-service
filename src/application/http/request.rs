@@ -1,4 +1,4 @@
-use super::{response::HttpResponse, route::RoutePath, HttpHeader, ToJsonString};
+use super::{response::HttpResponse, HttpHeader, ToJsonString};
 
 pub struct _TailwagApplicationRequest {
     request: HttpRequest,
@@ -13,7 +13,7 @@ pub struct HttpRequest {
     body: HttpRequestBody,
     method: HttpMethod,
     headers: HttpHeader,
-    path: RoutePath,
+    // path: RoutePath,
     // .. add here as needed
 }
 

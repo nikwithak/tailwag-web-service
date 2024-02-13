@@ -1,8 +1,18 @@
 pub mod application;
 pub mod auth;
+mod components;
 pub mod errors;
 pub mod traits;
-mod components;
+
+#[derive(Debug)]
+pub enum Error {
+    BadRequest(String),
+}
+impl<T: ToString> From<T> for Error {
+    fn from(value: T) -> Self {
+        Error::BadRequest(value.to_string())
+    }
+}
 
 pub fn add(
     left: usize,

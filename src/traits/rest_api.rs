@@ -1,14 +1,9 @@
 use axum::{async_trait, Router};
 use serde::Deserialize;
-use tailwag_orm::{
-    data_manager::{traits::DataProvider, PostgresDataProvider},
-    queries::Insertable,
-};
+use tailwag_orm::queries::Insertable;
 
-use crate::application::DataProviders;
-
-pub trait BuildRoutes<T: Insertable> {
-    fn build_routes(data_manager: PostgresDataProvider<T>) -> Router;
+pub trait BuildRoutes<T> {
+    fn build_routes() -> Router;
 }
 
 pub trait BuildCreateRoute<'a>
@@ -33,21 +28,3 @@ where
 {
     fn build_list_get_route() -> Router;
 }
-
-// pub async fn form() -> Html<String> {
-//     Html(
-//         "
-//         <form method=\"POST\" encType=\"application/json\" >
-//             <label for=\"name\">Name</label>
-//             <input type=\"text\" name=\"name\" />
-//             <br />
-//             <label for=\"style\">Style</label>
-//             <input type=\"text\" name=\"style\" />
-//             <input type=\"checkbox\" name=\"is_open_late\" value=\"true\" />
-//             <br />
-//             <button formaction=\"/food_truck\" type=\"submit\">Submit</button>
-//         </form>
-//         "
-//         .into(),
-//     )
-// }
