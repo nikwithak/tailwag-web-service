@@ -1,7 +1,8 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
+    cell::OnceCell,
     collections::HashMap,
-    fmt::Display,
     io::{BufRead, Read},
     marker::PhantomData,
     net::TcpStream,
@@ -12,7 +13,7 @@ use tailwag_orm::{
     queries::Insertable,
 };
 
-use crate::application::http::{headers::Headers, ToJsonString};
+use crate::application::http::headers::Headers;
 
 type RoutePath = String;
 
@@ -34,16 +35,56 @@ pub struct Route {
     children: HashMap<RoutePath, Box<Route>>,
     // TODO: Should do one of htese merkel tree things / Trie
 }
+impl std::fmt::Debug for Route {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.debug_struct("Route")
+            .field("path", &self.path)
+            .field("handlers", &self.handlers.keys())
+            .field("children", &self.children)
+            .finish()
+    }
+}
 
+const REGEX: OnceCell<Regex> = OnceCell::new();
 impl Route {
     pub fn find_handler(
         &self,
-        path: RoutePath,
-        method: HttpMethod,
-    ) -> Option<RouteHandler> {
-        let segments = path.split('/');
+        path: &RoutePath,
+        method: &HttpMethod,
+    ) -> Option<&RouteHandler> {
+        let mut route = Some(dbg!(self));
 
-        None
+        let segments = path.split("/");
+        for segment in segments {
+            // If empty segment, then we aren't routing anywhere - keep the current segment.
+            if !segment.is_empty() {
+                // TODO: Better way to split/parse the route string, instead of stripping and readding the /
+                route = route
+                    .and_then(|route| route.children.get(&format!("{}", segment)).map(|r| &**r));
+
+                if let Some(route) = &route {
+                    println!("SEGMENT: {} ROUTE: {}", &segment, route.path);
+                } else {
+                    println!("SEGMENT: {} NOT FOUND", &segment);
+                }
+            }
+        }
+
+        // if path == "" {
+        //     return self.handlers.get(&method);
+        // }
+        // let binding = REGEX;
+        // let regex = binding.get_or_init(|| {
+        //     Regex::new(r"^(/[a-zA-Z0-9_-]*)+$").expect("Failed to compile route-parsing regex.")
+        // });
+        // let path_segments = regex.captures(&path)?;
+        // for segment in path_segments.iter() {}
+        // let mut route = self;
+
+        route.and_then(|r| r.handlers.get(method).map(|handler| &**handler))
     }
 }
 
@@ -136,6 +177,7 @@ impl TryFrom<&str> for HttpMethod {
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 #[repr(usize)]
+#[derive(Debug)]
 pub enum HttpStatus {
     Ok = 200,
     Accepted = 201,
@@ -151,7 +193,7 @@ pub struct RouteHandler {
     handler: Box<dyn Send + Sync + Fn(Request, Context) -> Response>,
 }
 impl RouteHandler {
-    fn call(
+    pub fn call(
         &self,
         request: Request,
         context: Context,
@@ -259,10 +301,6 @@ impl TryFrom<&std::net::TcpStream> for Request {
             stream.read_exact(&mut buf)?;
             body.bytes = buf;
             println!("READ: {}", String::from_utf8(body.bytes.clone()).unwrap());
-        } else {
-            let mut t = Vec::<u8>::new();
-            stream.read_to_end(&mut t)?;
-            body.bytes = dbg!(t);
         }
 
         dbg!(Ok(Request {
@@ -277,6 +315,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
     type Error = crate::Error;
 }
 
+#[derive(Debug)]
 pub struct Response {
     pub http_version: HttpVersion,
     pub status: HttpStatus,
@@ -306,7 +345,7 @@ impl Response {
 }
 
 pub struct Context {
-    data_providers: DataSystem,
+    pub data_providers: DataSystem,
 }
 
 impl FromContext for DataSystem {
@@ -354,7 +393,20 @@ where
 
 impl<T: Serialize> IntoResponse for T {
     fn into_response(self) -> Response {
-        todo!()
+        match serde_json::to_string(&self) {
+            Ok(body) => crate::application::http::route::Response {
+                status: crate::application::http::route::HttpStatus::Ok,
+                headers: Headers::from(vec![]),
+                http_version: crate::application::http::route::HttpVersion::V1_1,
+                body: body.into_bytes(),
+            },
+            Err(_) => crate::application::http::route::Response {
+                status: crate::application::http::route::HttpStatus::InternalServerError,
+                headers: Headers::from(vec![]),
+                http_version: crate::application::http::route::HttpVersion::V1_1,
+                body: Vec::new(),
+            },
+        }
     }
 }
 
@@ -364,6 +416,7 @@ where
 {
     fn from(req: Request) -> Self;
 }
+
 pub trait FromContext
 where
     Self: Sized,
@@ -390,6 +443,33 @@ where
             handler_fn: Box::new(self),
             _i: PhantomData,
             _o: PhantomData,
+        }
+    }
+}
+
+// impl<F, I, O> IntoRouteHandler for F
+// where
+//     F: Fn(I) -> O,
+//     I: FromRequest + Sized,
+//     O: IntoResponse + Sized,
+// {
+//     fn into(self) -> TypedRouteHandler<F, I, O> {
+//         TypedRouteHandler {
+//             handler_fn: Box::new(self),
+//             _i: PhantomData,
+//             _o: PhantomData,
+//         }
+//     }
+// }
+
+impl<F, O> IntoRouteHandler for F
+where
+    F: Fn() -> O + Send + Sync + 'static,
+    O: IntoResponse + Sized,
+{
+    fn into(self) -> RouteHandler {
+        RouteHandler {
+            handler: Box::new(move |_, _ctx| (self)().into_response()),
         }
     }
 }

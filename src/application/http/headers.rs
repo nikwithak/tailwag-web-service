@@ -7,9 +7,26 @@ use crate::Error;
 type HeaderName = String;
 type HeaderValue = String;
 
-#[derive(Debug, Default, Deref)]
+#[derive(Debug, Deref)]
 pub struct Headers {
     headers: HashMap<HeaderName, HeaderValue>,
+}
+
+impl Default for Headers {
+    fn default() -> Self {
+        // Creates a sensible-defaults header set based on OWASP recommendations.
+        // Ref: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+        Self {
+            headers: vec![
+                ("X-Frame-Options", "DENY"),
+                ("X-Content-Type-Options", "nosniff"),
+                ("Referrer-Policy", "strict-origin-when-cross-origin"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        }
+    }
 }
 
 impl Headers {

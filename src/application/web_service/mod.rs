@@ -17,10 +17,10 @@ use tailwag_orm::{
 };
 
 use crate::application::http::headers::Headers;
+use crate::application::http::route::Context;
 // use crate::application::threads::ThreadPool;
 use crate::{
-    application::http::route::IntoTypedRouteHandler,
-    auth::gateway::{self, Account, Session},
+    auth::gateway::{Account, Session},
     traits::rest_api::BuildRoutes,
 };
 
@@ -93,7 +93,7 @@ impl Default for WebServiceBuilder {
             },
             resources: DataSystem::builder(),
             migrations: Vec::new(),
-            root_route: Route::default(),
+            root_route: Route::default().get(|| "Hey buddy"),
             forms: HashMap::new(),
         }
         .with_resource::<Account>()
@@ -145,13 +145,10 @@ impl WebServiceBuilder {
         /************************************************************************************/
         //
         // todo!("Build Routes");
-        #[derive(serde::Serialize, serde::Deserialize)]
-        struct Temp {
-            value: usize,
-        }
         {
             // fn route() {}
-            let route = Route::new_unchecked("/").get(IntoTypedRouteHandler::into(|t: String| t));
+            let rname = resource_name.clone();
+            let route = Route::new_unchecked("/").get(move || format!("HELLO {}", &rname.clone()));
             self.root_route.route(format!("{}", &resource_name), route);
         }
 
@@ -230,7 +227,7 @@ impl WebService {
             let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
             log::info!("Starting service on {}", &bind_addr);
             let listener = TcpListener::bind(&bind_addr).unwrap();
-            let _data_providers = &self.resources.connect(db_pool).await;
+            let data_providers = &self.resources.connect(db_pool).await;
             println!("Waiting for connection....");
             while let Ok((stream, _addr)) = listener.accept() {
                 println!("Got connection!");
@@ -241,8 +238,14 @@ impl WebService {
                 // )))
                 // .unwrap();
                 let svc = self.clone();
-                // tokio::spawn(| async move { svc.handle_request(stream) });
-                let result = svc.handle_request(stream).unwrap();
+                // tokio::spawn(async move { svc.handle_request(stream) });
+                svc.handle_request(
+                    stream,
+                    Context {
+                        data_providers: data_providers.clone(),
+                    },
+                )
+                .unwrap();
                 // let task_id = thread_pool.spawn(|| {
                 // Box::pin(async move {
                 //     svc.handle_request(stream).await.unwrap();
@@ -260,22 +263,27 @@ impl WebService {
     pub fn handle_request(
         self,
         mut stream: std::net::TcpStream,
+        context: Context,
     ) -> Result<RequestMetrics, crate::Error> {
         // THis is very much ina  "debugging" state - need to clean up once it's working.
         log::info!("Connection received from {}", stream.peer_addr()?);
         let request = crate::application::http::route::Request::try_from(&stream)?;
-        let path = request.path;
+        let path = &request.path;
         println!("FULL PATH: {}", &path);
-        let _t = self.routes.find_handler(path, crate::application::http::route::HttpMethod::Get);
-
-        let response = crate::application::http::route::Response {
-            status: crate::application::http::route::HttpStatus::Ok,
-            headers: Headers::from(vec![("Set-Cookie", "_id=hello_cookie")]),
-            body: request.body.bytes,
-            http_version: crate::application::http::route::HttpVersion::V1_1,
+        let request_handler = self
+            .routes
+            .find_handler(path, &crate::application::http::route::HttpMethod::Get);
+        let response = match request_handler {
+            Some(handler) => handler.call(request, context),
+            None => crate::application::http::route::Response {
+                status: crate::application::http::route::HttpStatus::NotFound,
+                headers: Headers::from(vec![]),
+                http_version: crate::application::http::route::HttpVersion::V1_1,
+                body: Vec::with_capacity(0),
+            },
         };
 
-        stream.write_all(&response.as_bytes())?;
+        stream.write_all(&dbg!(response).as_bytes())?;
 
         Ok(())
     }
