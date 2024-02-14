@@ -1,5 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::{
     cell::OnceCell,
     collections::HashMap,
@@ -7,6 +8,7 @@ use std::{
     marker::PhantomData,
     net::TcpStream,
     ops::Deref,
+    pin::Pin,
 };
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem,
@@ -191,15 +193,23 @@ pub enum HttpStatus {
 }
 
 pub struct RouteHandler {
-    handler: Box<dyn Send + Sync + Fn(Request, Context) -> Response>,
+    handler: Box<
+        dyn Send
+            + Sync
+            + 'static
+            + Fn(
+                Request,
+                Context,
+            ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
+    >,
 }
 impl RouteHandler {
-    pub fn call(
+    pub async fn call(
         &self,
         request: Request,
         context: Context,
     ) -> Response {
-        (self.handler)(request, context)
+        (self.handler)(request, context).await
     }
 }
 
@@ -361,18 +371,19 @@ impl Response {
     }
 }
 
+#[derive(Clone)]
 pub struct Context {
     pub data_providers: DataSystem,
 }
 
 impl FromContext for DataSystem {
-    fn from(ctx: &Context) -> Self {
+    fn from(ctx: Context) -> Self {
         ctx.data_providers.clone()
     }
 }
 
-impl<T: Insertable + Clone + 'static> FromContext for PostgresDataProvider<T> {
-    fn from(ctx: &Context) -> Self {
+impl<T: Insertable + Clone + Send + 'static> FromContext for PostgresDataProvider<T> {
+    fn from(ctx: Context) -> Self {
         ctx.data_providers
             .get::<T>()
             .clone()
@@ -434,18 +445,18 @@ pub trait FromContext
 where
     Self: Sized,
 {
-    fn from(ctx: &Context) -> Self;
+    fn from(ctx: Context) -> Self;
 }
 
 pub struct Nothing;
 impl<F, O> IntoRouteHandler<F, Nothing, O> for F
 where
-    F: Fn() -> O + Send + Sync + 'static,
+    F: Fn() -> O + Send + Copy + 'static + Sync,
     O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |req, ctx| self().into_response()),
+            handler: Box::new(move |req, ctx| Box::pin(async move { self().into_response() })),
         }
     }
 }
@@ -455,41 +466,55 @@ pub trait IntoRouteHandler<F, I, O> {
 }
 impl<F, I, O> IntoRouteHandler<F, I, O> for F
 where
-    F: Fn(I) -> O + Send + Sync + 'static,
-    I: FromRequest + Sized,
+    F: Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
+        + Send
+        + Sync
+        + Copy
+        + 'static,
+    I: FromRequest + Sized + Send,
     O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |req, ctx| self(I::from(req)).into_response()),
+            handler: Box::new(move |req, ctx| {
+                Box::pin(async move { self(I::from(req)).await.into_response() })
+            }),
         }
     }
 }
 
 pub struct Nothing2;
-impl<F, C, O> IntoRouteHandler<F, Nothing3, (C, O)> for F
+
+impl<F, I, C, O, Fut> IntoRouteHandler<F, Nothing2, (C, I, (O, Fut))> for F
 where
-    F: Fn(C) -> O + Send + Sync + 'static,
-    C: FromContext + Sized,
-    O: IntoResponse + Sized + Send,
+    F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
+    I: FromRequest + Sized + 'static,
+    C: FromContext + Sized + 'static,
+    O: IntoResponse + Sized + Send + 'static,
+    Fut: Future<Output = O> + 'static + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |_req, ctx| self(C::from(&ctx)).into_response()),
+            handler: Box::new(move |req, ctx| {
+                Box::pin(async move { self(I::from(req), C::from(ctx)).await.into_response() })
+            }),
         }
     }
 }
+
 pub struct Nothing3;
-impl<F, I, C, O> IntoRouteHandler<F, Nothing2, (C, I, O)> for F
+impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3, (C, O, Fut)> for F
 where
-    F: Fn(I, C) -> O + Send + Sync + 'static,
-    I: FromRequest + Sized,
-    C: FromContext + Sized,
-    O: IntoResponse + Sized + Send,
+    F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
+    C: FromContext + Sized + 'static,
+    O: IntoResponse + Sized + Send + 'static,
+    Fut: Future<Output = O> + 'static + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |req, ctx| self(I::from(req), C::from(&ctx)).into_response()),
+            handler: Box::new(move |req, ctx| {
+                Box::pin(async move { self(C::from(ctx)).await.into_response() })
+            }),
         }
     }
 }

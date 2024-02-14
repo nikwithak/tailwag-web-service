@@ -158,7 +158,7 @@ impl WebServiceBuilder {
         //
         // todo!("Build Routes");
         {
-            fn get_route<
+            async fn get_route<
                 T: Insertable
                     + GetTableDefinition
                     + 'static
@@ -179,10 +179,19 @@ impl WebServiceBuilder {
             >(
                 provider: PostgresDataProvider<T>
             ) -> Vec<T> {
-                provider.all();
-                vec![Default::default()]
+                provider.all().await.unwrap().collect()
             }
-            let route = Route::new_unchecked("/").get(get_route::<T>);
+            let route = Route::new_unchecked("/")
+                .get(get_route::<T>)
+                .post(|item: T, provider: PostgresDataProvider<T>| async move {
+                    provider.create(item).await.unwrap()
+                })
+                .delete(|item: T, provider: PostgresDataProvider<T>| async move {
+                    provider.delete(item).await.unwrap()
+                })
+                .patch(|item: T, provider: PostgresDataProvider<T>| async move {
+                    provider.update(&item).await.unwrap()
+                });
             self.root_route.route(format!("{}", &resource_name), route);
         }
 
@@ -205,7 +214,8 @@ impl WebServiceBuilder {
                 resources: self.resources.build(),
                 // router: self.router,
                 routes: self.root_route,
-            }),
+            })
+            .clone(),
         }
     }
 }
@@ -237,6 +247,10 @@ impl WebService {
         }
     }
 
+    pub fn builder(name: &str) -> WebServiceBuilder {
+        WebServiceBuilder::new(name)
+    }
+
     /// Start the Application. By default, starts an HTTP server bound to `127.0.0.1::8081`.
     pub async fn run(self) -> Result<RunResult, crate::Error> {
         /////////////////////////////
@@ -265,12 +279,6 @@ impl WebService {
             println!("Waiting for connection....");
             while let Ok((stream, _addr)) = listener.accept() {
                 println!("Got connection!");
-                // stream
-                // .set_write_timeout(Some(std::time::Duration::new(
-                //     self.config.request_timeout_seconds,
-                //     0,
-                // )))
-                // .unwrap();
                 let svc = self.clone();
                 // tokio::spawn(async move { svc.handle_request(stream) });
                 svc.handle_request(
@@ -279,6 +287,7 @@ impl WebService {
                         data_providers: data_providers.clone(),
                     },
                 )
+                .await
                 .unwrap();
                 // let task_id = thread_pool.spawn(|| {
                 // Box::pin(async move {
@@ -294,7 +303,7 @@ impl WebService {
         Ok(RunResult::default())
     }
 
-    pub fn handle_request(
+    pub async fn handle_request(
         self,
         mut stream: std::net::TcpStream,
         context: Context,
@@ -308,7 +317,7 @@ impl WebService {
             .routes
             .find_handler(path, &crate::application::http::route::HttpMethod::Get);
         let response = match request_handler {
-            Some(handler) => handler.call(request, context),
+            Some(handler) => handler.call(request, context).await,
             None => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::NotFound,
                 headers: Headers::from(vec![]),
