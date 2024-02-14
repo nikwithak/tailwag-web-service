@@ -5,8 +5,14 @@ use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use env_logger::Env;
 use log;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use tailwag_forms::{Form, GetForm};
+use tailwag_orm::data_manager::rest_api::Id;
+use tailwag_orm::data_manager::traits::DataProvider;
+use tailwag_orm::data_manager::PostgresDataProvider;
+use tailwag_orm::queries::filterable_types::Filterable;
+use tailwag_orm::queries::Insertable;
 use tailwag_orm::{
     data_definition::{
         exp_data_system::{DataSystem, DataSystemBuilder, UnconnectedDataSystem},
@@ -17,7 +23,8 @@ use tailwag_orm::{
 };
 
 use crate::application::http::headers::Headers;
-use crate::application::http::route::Context;
+use crate::application::http::route::{Context, FromContext};
+use crate::auth;
 // use crate::application::threads::ThreadPool;
 use crate::{
     auth::gateway::{Account, Session},
@@ -116,12 +123,17 @@ impl WebServiceBuilder {
             + tailwag_orm::queries::Insertable
             + 'static
             + Send
+            + Id
+            + Filterable
             + Clone
             + Sync
             + std::fmt::Debug
             + Unpin
             + Updateable
+            + Default
             + GetForm
+            + for<'a> Deserialize<'a>
+            + Serialize
             + for<'r> sqlx::FromRow<'r, PgRow>
             + Deleteable,
     {
@@ -146,9 +158,31 @@ impl WebServiceBuilder {
         //
         // todo!("Build Routes");
         {
-            // fn route() {}
-            let rname = resource_name.clone();
-            let route = Route::new_unchecked("/").get(move || format!("HELLO {}", &rname.clone()));
+            fn get_route<
+                T: Insertable
+                    + GetTableDefinition
+                    + 'static
+                    + Send
+                    + Id
+                    + Filterable
+                    + Clone
+                    + Sync
+                    + std::fmt::Debug
+                    + Unpin
+                    + Updateable
+                    + Default
+                    + GetForm
+                    + for<'a> Deserialize<'a>
+                    + Serialize
+                    + for<'r> sqlx::FromRow<'r, PgRow>
+                    + Deleteable,
+            >(
+                provider: PostgresDataProvider<T>
+            ) -> Vec<T> {
+                provider.all();
+                vec![Default::default()]
+            }
+            let route = Route::new_unchecked("/").get(get_route::<T>);
             self.root_route.route(format!("{}", &resource_name), route);
         }
 

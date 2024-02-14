@@ -28,8 +28,8 @@ mod tailwag {
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
     Default,
-    serde::Deserialize,                 // Needed for API de/serialization
-    serde::Serialize,                   // Needed for API de/serialization
+    Deserialize,                        // Needed for API de/serialization
+    Serialize,                          // Needed for API de/serialization
     sqlx::FromRow,                      // Needed for DB connectivity
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,
@@ -66,8 +66,8 @@ impl BuildRoutes<Session> for Session {
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
     Default,
-    serde::Deserialize,                 // Needed for API de/serialization
-    serde::Serialize,                   // Needed for API de/serialization
+    Deserialize,                        // Needed for API de/serialization
+    Serialize,                          // Needed for API de/serialization
     sqlx::FromRow,                      // Needed for DB connectivity
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,

@@ -9,7 +9,8 @@ use std::{
     ops::Deref,
 };
 use tailwag_orm::{
-    data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
+    data_definition::exp_data_system::DataSystem,
+    data_manager::{traits::DataProvider, PostgresDataProvider},
     queries::Insertable,
 };
 
@@ -99,9 +100,9 @@ impl Default for Route {
 }
 macro_rules! impl_method {
     ($method:ident:$variant:ident) => {
-        pub fn $method(
+        pub fn $method<F, I, O>(
             mut self,
-            handler: impl IntoRouteHandler,
+            handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
             self.handlers.insert(HttpMethod::$variant, Box::new(handler.into()));
             self
@@ -259,6 +260,22 @@ impl Request {
     }
 }
 
+// Trying to find a way to use both a request AND the context / state
+// pub struct ContextualRequest {
+//     request: Request,
+//     context: Context,
+// }
+
+// pub trait FromContextualRequest {
+//     fn from(ctx_req: ContextualRequest) -> Self;
+// }
+
+// impl<T: FromRequest> FromContextualRequest for T {
+//     fn from(ctx_req: ContextualRequest) -> Self {
+//         <Self as FromRequest>::from(ctx_req.request)
+//     }
+// }
+
 #[derive(Debug)]
 pub struct HttpBody {
     pub bytes: Vec<u8>,
@@ -363,10 +380,6 @@ impl<T: Insertable + Clone + 'static> FromContext for PostgresDataProvider<T> {
     }
 }
 
-pub trait IntoRouteHandler {
-    fn into(self) -> RouteHandler;
-}
-
 /// This is used as an intermediary step to get from a generic Fn to a RouteHandler.
 /// `impl<F,I,O> IntoRouteHandler for F where F: Fn(I) -> O` is not allowed, since
 /// the generics I and O have to be a part of F.
@@ -424,65 +437,59 @@ where
     fn from(ctx: &Context) -> Self;
 }
 
-pub trait IntoTypedRouteHandler<F, I, O>
-where
-    F: Fn(I) -> O,
-    I: FromRequest + Sized,
-    O: IntoResponse + Sized,
-{
-    fn into(self) -> TypedRouteHandler<F, I, O>;
-}
-impl<F, I, O> IntoTypedRouteHandler<F, I, O> for F
-where
-    F: Fn(I) -> O,
-    I: FromRequest + Sized,
-    O: IntoResponse + Sized,
-{
-    fn into(self) -> TypedRouteHandler<F, I, O> {
-        TypedRouteHandler {
-            handler_fn: Box::new(self),
-            _i: PhantomData,
-            _o: PhantomData,
-        }
-    }
-}
-
-// impl<F, I, O> IntoRouteHandler for F
-// where
-//     F: Fn(I) -> O,
-//     I: FromRequest + Sized,
-//     O: IntoResponse + Sized,
-// {
-//     fn into(self) -> TypedRouteHandler<F, I, O> {
-//         TypedRouteHandler {
-//             handler_fn: Box::new(self),
-//             _i: PhantomData,
-//             _o: PhantomData,
-//         }
-//     }
-// }
-
-impl<F, O> IntoRouteHandler for F
+pub struct Nothing;
+impl<F, O> IntoRouteHandler<F, Nothing, O> for F
 where
     F: Fn() -> O + Send + Sync + 'static,
-    O: IntoResponse + Sized,
+    O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |_, _ctx| (self)().into_response()),
+            handler: Box::new(move |req, ctx| self().into_response()),
         }
     }
 }
 
-impl<F, I, O> IntoRouteHandler for TypedRouteHandler<F, I, O>
+pub trait IntoRouteHandler<F, I, O> {
+    fn into(self) -> RouteHandler;
+}
+impl<F, I, O> IntoRouteHandler<F, I, O> for F
 where
     F: Fn(I) -> O + Send + Sync + 'static,
     I: FromRequest + Sized,
-    O: IntoResponse + Sized,
+    O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |req, _ctx| (self.handler_fn)(I::from(req)).into_response()),
+            handler: Box::new(move |req, ctx| self(I::from(req)).into_response()),
+        }
+    }
+}
+
+pub struct Nothing2;
+impl<F, C, O> IntoRouteHandler<F, Nothing3, (C, O)> for F
+where
+    F: Fn(C) -> O + Send + Sync + 'static,
+    C: FromContext + Sized,
+    O: IntoResponse + Sized + Send,
+{
+    fn into(self) -> RouteHandler {
+        RouteHandler {
+            handler: Box::new(move |_req, ctx| self(C::from(&ctx)).into_response()),
+        }
+    }
+}
+pub struct Nothing3;
+impl<F, I, C, O> IntoRouteHandler<F, Nothing2, (C, I, O)> for F
+where
+    F: Fn(I, C) -> O + Send + Sync + 'static,
+    I: FromRequest + Sized,
+    C: FromContext + Sized,
+    O: IntoResponse + Sized + Send,
+{
+    fn into(self) -> RouteHandler {
+        RouteHandler {
+            handler: Box::new(move |req, ctx| self(I::from(req), C::from(&ctx)).into_response()),
         }
     }
 }
