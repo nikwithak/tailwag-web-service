@@ -305,7 +305,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
         };
         let mut line = String::new();
 
-        // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request.
+        // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
         while stream.read_line(&mut line)? > 2 {
             println!("LINE: {}", &line);
             headers.insert_parsed(&line)?;
@@ -448,73 +448,91 @@ where
     fn from(ctx: Context) -> Self;
 }
 
-pub struct Nothing;
-impl<F, O> IntoRouteHandler<F, Nothing, O> for F
+pub struct RouteArgsNone;
+impl<F, O> IntoRouteHandler<F, RouteArgsNone, O> for F
 where
     F: Fn() -> O + Send + Copy + 'static + Sync,
     O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
-            handler: Box::new(move |req, ctx| Box::pin(async move { self().into_response() })),
+            handler: Box::new(move |_, _| Box::pin(async move { self().into_response() })),
         }
     }
 }
 
-pub trait IntoRouteHandler<F, I, O> {
-    fn into(self) -> RouteHandler;
-}
-impl<F, I, O> IntoRouteHandler<F, I, O> for F
-where
-    F: Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
-        + Send
-        + Sync
-        + Copy
-        + 'static,
-    I: FromRequest + Sized + Send,
-    O: IntoResponse + Sized + Send,
-{
-    fn into(self) -> RouteHandler {
-        RouteHandler {
-            handler: Box::new(move |req, ctx| {
-                Box::pin(async move { self(I::from(req)).await.into_response() })
-            }),
+/// This mod contains all the logic / trait impls for automatically converting functions into a RouteHandler.
+/// The goal is to enable ergonomic and intuitive route handling.
+/// At the moment, it supports exactly one Request input type, and one that reads from the Context (which currently only contains data providers).
+mod into_route_handler {
+    use std::pin::Pin;
+
+    use std::future::Future;
+
+    use super::{FromContext, FromRequest, IntoResponse, RouteHandler};
+
+    pub struct RouteArgsStaticRequest;
+    /// The generics are merely here for tagging / distinguishing implementations.
+    /// F: represents the function signature for the different implementations. This is the one that really matters.
+    /// Tag: Merely tag structs, to disambiguate implementations when there is trait overlap.
+    /// IO: The function input / output types. They must be a part of the trait declaration in order to be used in the impl,
+    ///     i.e. these exist only so that we can use them to define `F`
+    pub trait IntoRouteHandler<F, Tag, IO> {
+        fn into(self) -> RouteHandler;
+    }
+    impl<F, I, O> IntoRouteHandler<F, RouteArgsStaticRequest, (I, O)> for F
+    where
+        F: Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
+            + Send
+            + Sync
+            + Copy
+            + 'static,
+        I: FromRequest + Sized + Send,
+        O: IntoResponse + Sized + Send,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, _ctx| {
+                    Box::pin(async move { self(I::from(req)).await.into_response() })
+                }),
+            }
+        }
+    }
+
+    pub struct RouteArgsRequestContext;
+
+    impl<F, I, C, O, Fut> IntoRouteHandler<F, RouteArgsRequestContext, (C, I, (O, Fut))> for F
+    where
+        F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
+        I: FromRequest + Sized + 'static,
+        C: FromContext + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+        Fut: Future<Output = O> + 'static + Send,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, ctx| {
+                    Box::pin(async move { self(I::from(req), C::from(ctx)).await.into_response() })
+                }),
+            }
+        }
+    }
+
+    pub struct Nothing3;
+    impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3, (C, O, Fut)> for F
+    where
+        F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
+        C: FromContext + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+        Fut: Future<Output = O> + 'static + Send,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |_req, ctx| {
+                    Box::pin(async move { self(C::from(ctx)).await.into_response() })
+                }),
+            }
         }
     }
 }
-
-pub struct Nothing2;
-
-impl<F, I, C, O, Fut> IntoRouteHandler<F, Nothing2, (C, I, (O, Fut))> for F
-where
-    F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
-    I: FromRequest + Sized + 'static,
-    C: FromContext + Sized + 'static,
-    O: IntoResponse + Sized + Send + 'static,
-    Fut: Future<Output = O> + 'static + Send,
-{
-    fn into(self) -> RouteHandler {
-        RouteHandler {
-            handler: Box::new(move |req, ctx| {
-                Box::pin(async move { self(I::from(req), C::from(ctx)).await.into_response() })
-            }),
-        }
-    }
-}
-
-pub struct Nothing3;
-impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3, (C, O, Fut)> for F
-where
-    F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
-    C: FromContext + Sized + 'static,
-    O: IntoResponse + Sized + Send + 'static,
-    Fut: Future<Output = O> + 'static + Send,
-{
-    fn into(self) -> RouteHandler {
-        RouteHandler {
-            handler: Box::new(move |req, ctx| {
-                Box::pin(async move { self(C::from(ctx)).await.into_response() })
-            }),
-        }
-    }
-}
+pub use into_route_handler::*;

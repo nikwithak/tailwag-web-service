@@ -1,5 +1,3 @@
-mod axum_runner;
-
 use std::io::Write;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
@@ -158,31 +156,10 @@ impl WebServiceBuilder {
         //
         // todo!("Build Routes");
         {
-            async fn get_route<
-                T: Insertable
-                    + GetTableDefinition
-                    + 'static
-                    + Send
-                    + Id
-                    + Filterable
-                    + Clone
-                    + Sync
-                    + std::fmt::Debug
-                    + Unpin
-                    + Updateable
-                    + Default
-                    + GetForm
-                    + for<'a> Deserialize<'a>
-                    + Serialize
-                    + for<'r> sqlx::FromRow<'r, PgRow>
-                    + Deleteable,
-            >(
-                provider: PostgresDataProvider<T>
-            ) -> Vec<T> {
-                provider.all().await.unwrap().collect()
-            }
             let route = Route::new_unchecked("/")
-                .get(get_route::<T>)
+                .get(|provider: PostgresDataProvider<T>| async move {
+                    provider.all().await.unwrap().collect::<Vec<_>>()
+                })
                 .post(|item: T, provider: PostgresDataProvider<T>| async move {
                     provider.create(item).await.unwrap()
                 })
@@ -265,39 +242,33 @@ impl WebService {
             .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?");
         // let thread_pool = ThreadPool::new(self.config.max_threads);
 
-        const AXUM: bool = false;
-        println!("Starting service");
+        // The custom implementation!
+        let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
+        log::info!("Starting service on {}", &bind_addr);
+        let listener = TcpListener::bind(&bind_addr).unwrap();
+        let data_providers = &self.resources.connect(db_pool).await;
+        println!("Waiting for connection....");
+        while let Ok((stream, _addr)) = listener.accept() {
+            println!("Received connection from {}!", _addr.ip());
+            // TODO: Rate-limiting / failtoban stuff
+            let svc = self.clone();
+            // tokio::spawn(async move { svc.handle_request(stream) });
+            svc.handle_request(
+                stream,
+                Context {
+                    data_providers: data_providers.clone(),
+                },
+            )
+            .await
+            .unwrap();
+            // let task_id = thread_pool.spawn(|| {
+            // Box::pin(async move {
+            //     svc.handle_request(stream).await.unwrap();
+            // })
+            // });
 
-        if AXUM {
-            axum_runner::run_axum(self, db_pool).await;
-        } else {
-            // The custom implementation!
-            let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
-            log::info!("Starting service on {}", &bind_addr);
-            let listener = TcpListener::bind(&bind_addr).unwrap();
-            let data_providers = &self.resources.connect(db_pool).await;
+            // println!("Spawned worker thread: {}", task_id);
             println!("Waiting for connection....");
-            while let Ok((stream, _addr)) = listener.accept() {
-                println!("Got connection!");
-                let svc = self.clone();
-                // tokio::spawn(async move { svc.handle_request(stream) });
-                svc.handle_request(
-                    stream,
-                    Context {
-                        data_providers: data_providers.clone(),
-                    },
-                )
-                .await
-                .unwrap();
-                // let task_id = thread_pool.spawn(|| {
-                // Box::pin(async move {
-                //     svc.handle_request(stream).await.unwrap();
-                // })
-                // });
-
-                // println!("Spawned worker thread: {}", task_id);
-                println!("Waiting for connection....");
-            }
         }
         todo!("decide what a RunResult is");
         Ok(RunResult::default())
@@ -313,9 +284,7 @@ impl WebService {
         let request = crate::application::http::route::Request::try_from(&stream)?;
         let path = &request.path;
         println!("FULL PATH: {}", &path);
-        let request_handler = self
-            .routes
-            .find_handler(path, &crate::application::http::route::HttpMethod::Get);
+        let request_handler = self.routes.find_handler(path, &request.method);
         let response = match request_handler {
             Some(handler) => handler.call(request, context).await,
             None => crate::application::http::route::Response {
