@@ -10,7 +10,6 @@ use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::data_manager::traits::DataProvider;
 use tailwag_orm::data_manager::PostgresDataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
-use tailwag_orm::queries::Insertable;
 use tailwag_orm::{
     data_definition::{
         exp_data_system::{DataSystem, DataSystemBuilder, UnconnectedDataSystem},
@@ -21,8 +20,7 @@ use tailwag_orm::{
 };
 
 use crate::application::http::headers::Headers;
-use crate::application::http::route::{Context, FromContext};
-use crate::auth;
+use crate::application::http::route::Context;
 // use crate::application::threads::ThreadPool;
 use crate::{
     auth::gateway::{Account, Session},
@@ -116,8 +114,8 @@ impl WebServiceBuilder {
 
     pub fn with_resource<T>(mut self) -> Self
     where
-        T: BuildRoutes<T>
-            + GetTableDefinition
+        T: GetTableDefinition
+            + BuildRoutes<T>
             + tailwag_orm::queries::Insertable
             + 'static
             + Send
@@ -153,22 +151,10 @@ impl WebServiceBuilder {
         }));
 
         /************************************************************************************/
-        //
-        // todo!("Build Routes");
+        //  BUILD THE ROUTES
+
         {
-            let route = Route::new_unchecked("/")
-                .get(|provider: PostgresDataProvider<T>| async move {
-                    provider.all().await.unwrap().collect::<Vec<_>>()
-                })
-                .post(|item: T, provider: PostgresDataProvider<T>| async move {
-                    provider.create(item).await.unwrap()
-                })
-                .delete(|item: T, provider: PostgresDataProvider<T>| async move {
-                    provider.delete(item).await.unwrap()
-                })
-                .patch(|item: T, provider: PostgresDataProvider<T>| async move {
-                    provider.update(&item).await.unwrap()
-                });
+            let route = T::build_routes();
             self.root_route.route(format!("{}", &resource_name), route);
         }
 

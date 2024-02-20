@@ -172,8 +172,7 @@ impl WebService<Building> {
 
     pub fn with_resource<T>(mut self) -> Self
     where
-        T: BuildRoutes<T>
-            + GetTableDefinition
+        T: GetTableDefinition
             + tailwag_orm::queries::Insertable
             + 'static
             + Send

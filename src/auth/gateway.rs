@@ -12,11 +12,11 @@ use axum::{
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use tailwag_macros::Filterable;
+use tailwag_macros::{BuildRoutes, Filterable};
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
-use crate::traits::rest_api::BuildRoutes;
+use crate::{application::http::route::Route, traits::rest_api::BuildRoutes};
 
 const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 mod tailwag {
@@ -36,7 +36,7 @@ mod tailwag {
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
     Filterable,
-    // tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
+    BuildRoutes,
     tailwag::forms::macros::GetForm,
 )]
 pub struct Account {
@@ -45,35 +45,24 @@ pub struct Account {
     passhash: String,
 }
 
-impl BuildRoutes<Account> for Account {
-    fn build_routes() -> axum::Router {
-        todo!()
-    }
-}
-
 impl tailwag::orm::data_manager::rest_api::Id for Account {
     fn id(&self) -> &uuid::Uuid {
         &self.id
     }
 }
 
-impl BuildRoutes<Session> for Session {
-    fn build_routes() -> axum::Router {
-        todo!()
-    }
-}
 #[derive(
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
     Default,
-    Deserialize,                        // Needed for API de/serialization
-    Serialize,                          // Needed for API de/serialization
-    sqlx::FromRow,                      // Needed for DB connectivity
+    Deserialize,   // Needed for API de/serialization
+    Serialize,     // Needed for API de/serialization
+    sqlx::FromRow, // Needed for DB connectivity
+    BuildRoutes,
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
-    // tailwag_macros::BuildRoutes, // Creates the functions needed for a REST service (full CRUD)
     tailwag_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
@@ -98,7 +87,7 @@ pub enum AccountType {
 
 #[derive(Default)]
 pub struct RequestContext {
-    account: AccountType,
+    _account: AccountType,
 }
 
 pub struct AuthorizationGateway {}

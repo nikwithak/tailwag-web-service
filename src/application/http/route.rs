@@ -51,7 +51,6 @@ impl std::fmt::Debug for Route {
     }
 }
 
-const REGEX: OnceCell<Regex> = OnceCell::new();
 impl Route {
     pub fn find_handler(
         &self,
@@ -60,13 +59,13 @@ impl Route {
     ) -> Option<&RouteHandler> {
         let mut route = Some(dbg!(self));
 
-        let segments = path.split("/");
+        let segments = path.split('/');
         for segment in segments {
             // If empty segment, then we aren't routing anywhere - keep the current segment.
             if !segment.is_empty() {
                 // TODO: Better way to split/parse the route string, instead of stripping and readding the /
-                route = route
-                    .and_then(|route| route.children.get(&format!("{}", segment)).map(|r| &**r));
+                route =
+                    route.and_then(|route| route.children.get(&segment.to_string()).map(|r| &**r));
 
                 if let Some(route) = &route {
                     println!("SEGMENT: {} ROUTE: {}", &segment, route.path);
@@ -420,7 +419,7 @@ impl<T: Serialize> IntoResponse for T {
         match serde_json::to_string(&self) {
             Ok(body) => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::Ok,
-                headers: Headers::from(vec![]),
+                headers: Headers::from(vec![("Content-Type", "application/json")]), // TODO: Make this dynamic
                 http_version: crate::application::http::route::HttpVersion::V1_1,
                 body: body.into_bytes(),
             },
