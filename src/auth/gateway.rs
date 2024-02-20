@@ -16,8 +16,6 @@ use tailwag_macros::{BuildRoutes, Filterable};
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
-use crate::{application::http::route::Route, traits::rest_api::BuildRoutes};
-
 const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 mod tailwag {
     pub use crate as web;

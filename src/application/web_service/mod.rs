@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use tailwag_forms::{Form, GetForm};
 use tailwag_orm::data_manager::rest_api::Id;
-use tailwag_orm::data_manager::traits::DataProvider;
-use tailwag_orm::data_manager::PostgresDataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -37,6 +35,7 @@ pub enum ApplicationError {
 
 // TODO: Separate definition from config
 #[derive(Debug)]
+#[allow(unused)]
 pub struct WebServiceConfig {
     application_name: String,
     socket_addr: String,
@@ -256,7 +255,6 @@ impl WebService {
             // println!("Spawned worker thread: {}", task_id);
             println!("Waiting for connection....");
         }
-        todo!("decide what a RunResult is");
         Ok(RunResult::default())
     }
 

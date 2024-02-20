@@ -5,7 +5,6 @@ use std::{
         mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
     },
-    task::{Context, Wake},
     thread::{Builder, JoinHandle},
 };
 
@@ -13,13 +12,14 @@ use uuid::Uuid;
 
 enum TaskStatus {
     NotStarted,
-    Started,
-    Finished,
-    Error,
+    _Started,
+    _Finished,
+    _Error,
 }
 
 type TaskFn =
     dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> + Send + Sync + 'static;
+#[allow(unused)]
 struct Task {
     task_fn: Box<TaskFn>,
     id: uuid::Uuid,
@@ -28,6 +28,7 @@ struct Task {
 
 type TaskReceiver = Arc<Mutex<Receiver<Task>>>;
 
+#[allow(unused)]
 pub struct ThreadPool {
     workers: Vec<Worker>,
     task_sender: Sender<Task>,
@@ -67,6 +68,7 @@ impl ThreadPool {
     }
 }
 
+#[allow(unused)]
 struct Worker {
     id: usize,
     thread: JoinHandle<()>,
@@ -86,7 +88,6 @@ impl Worker {
                     .recv()
                     .expect("Failed to get task");
                 log::info!("Worker {}: STARTING:  Task {}", id, task.id);
-                let start_time = std::time::Instant::now();
                 // TODO: Collect metrics / results here
                 let future = (task.task_fn)();
                 tokio::spawn(future);

@@ -1,18 +1,12 @@
-use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::future::Future;
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     io::{BufRead, Read},
-    marker::PhantomData,
-    net::TcpStream,
     ops::Deref,
     pin::Pin,
 };
 use tailwag_orm::{
-    data_definition::exp_data_system::DataSystem,
-    data_manager::{traits::DataProvider, PostgresDataProvider},
+    data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
     queries::Insertable,
 };
 
@@ -21,15 +15,15 @@ use crate::application::http::headers::Headers;
 type RoutePath = String;
 
 // TODO: This is to replace "RoutePath"
-enum RoutePathE {
-    Static(String),
-    Param(String),
-}
-impl From<&str> for RoutePathE {
-    fn from(value: &str) -> Self {
-        todo!()
-    }
-}
+// enum RoutePathE {
+//     Static(String),
+//     Param(String),
+// }
+// impl From<&str> for RoutePathE {
+//     fn from(value: &str) -> Self {
+//         todo!()
+//     }
+// }
 
 #[allow(unused)]
 pub struct Route {
@@ -191,16 +185,17 @@ pub enum HttpStatus {
     InternalServerError = 503,
 }
 
+type RouteHandlerInner = Box<
+    dyn Send
+        + Sync
+        + 'static
+        + Fn(
+            Request,
+            Context,
+        ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
+>;
 pub struct RouteHandler {
-    handler: Box<
-        dyn Send
-            + Sync
-            + 'static
-            + Fn(
-                Request,
-                Context,
-            ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
-    >,
+    handler: RouteHandlerInner,
 }
 impl RouteHandler {
     pub async fn call(
@@ -260,12 +255,6 @@ impl<T: for<'a> Deserialize<'a>> FromRequest for T {
         // TODO: Return this as a Result so we can route based on it later
         // ^^^ that didn't work,
         serde_json::from_slice(&req.body.bytes).unwrap()
-    }
-}
-
-impl Request {
-    fn parse(raw_request: &TcpStream) -> Self {
-        todo!()
     }
 }
 
@@ -388,23 +377,6 @@ impl<T: Insertable + Clone + Send + 'static> FromContext for PostgresDataProvide
             .clone()
             .expect("Attempted to use DataProvider that does not exist.")
     }
-}
-
-/// This is used as an intermediary step to get from a generic Fn to a RouteHandler.
-/// `impl<F,I,O> IntoRouteHandler for F where F: Fn(I) -> O` is not allowed, since
-/// the generics I and O have to be a part of F.
-/// I'm really working some wonky type magic here
-///
-/// If you want to create a custom handler type, implement [IntoTypedRouteHandler] or [IntoRouteHandler]
-pub struct TypedRouteHandler<F, I, O>
-where
-    F: Fn(I) -> O,
-    I: FromRequest + Sized,
-    O: IntoResponse + Sized,
-{
-    handler_fn: Box<F>,
-    _i: PhantomData<I>,
-    _o: PhantomData<O>,
 }
 
 pub trait IntoResponse

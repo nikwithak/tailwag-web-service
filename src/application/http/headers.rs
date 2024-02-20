@@ -34,7 +34,7 @@ impl Headers {
         &mut self,
         header: &str,
     ) -> Result<(), Error> {
-        let mut split = dbg!(header).split(":");
+        let mut split = dbg!(header).split(':');
         let (Some(name), Some(value)) = (split.next(), split.next()) else {
             return Err(Error::BadRequest(format!("Failed to parse header: {}", header)));
         };

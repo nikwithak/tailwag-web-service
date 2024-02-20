@@ -1,5 +1,6 @@
 use super::{response::HttpResponse, HttpHeader, ToJsonString};
 
+#[allow(unused)]
 pub struct _TailwagApplicationRequest {
     request: HttpRequest,
     state: String, // TODO
