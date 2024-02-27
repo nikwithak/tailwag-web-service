@@ -2,7 +2,6 @@ pub mod headers;
 pub mod request;
 pub mod response;
 pub mod route;
-pub mod state;
 
 use serde::Serialize;
 

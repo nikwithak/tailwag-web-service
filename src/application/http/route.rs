@@ -12,7 +12,7 @@ use tailwag_orm::{
 
 use crate::application::http::headers::Headers;
 
-type RoutePath = String;
+pub type RoutePath = String;
 
 // TODO: This is to replace "RoutePath"
 // enum RoutePathE {

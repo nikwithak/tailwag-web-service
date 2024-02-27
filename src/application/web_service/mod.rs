@@ -1,6 +1,8 @@
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
+use crate::application::http::route::RoutePath;
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
+use super::http::route::IntoRouteHandler;
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -53,11 +56,9 @@ pub struct WebServiceConfig {
 #[allow(private_bounds)]
 pub struct WebServiceInner {
     config: WebServiceConfig,
-    /// This should ONLY hold DataProvider<T> types - using Any because there is no
-    /// other way I've found to have multiple of the same generic trait but using different
-    /// underlying types.
     routes: Route,
     resources: UnconnectedDataSystem,
+    _migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
 }
 
 #[derive(tailwag_macros::Deref, Clone)]
@@ -65,8 +66,13 @@ pub struct WebService {
     inner: std::sync::Arc<WebServiceInner>,
 }
 
-type MigrationRunners =
-    Vec<Box<dyn FnOnce(DataSystem) -> Pin<Box<dyn Future<Output = Result<(), String>>>>>>;
+type MigrationRunners = Vec<
+    Box<
+        dyn FnOnce(DataSystem) -> Pin<Box<dyn Future<Output = Result<(), String>> + Sync + Send>>
+            + Send
+            + Sync,
+    >,
+>;
 
 // TODO: Separate definition from config
 #[allow(private_bounds)]
@@ -95,12 +101,32 @@ impl Default for WebServiceBuilder {
             },
             resources: DataSystem::builder(),
             migrations: Vec::new(),
-            root_route: Route::default().get(|| "Hey buddy"),
+            root_route: Route::default(),
             forms: HashMap::new(),
         }
         .with_resource::<Account>()
         .with_resource::<Session>()
     }
+}
+
+macro_rules! build_route_method {
+    ($method:ident) => {
+        pub fn $method<F, I, O>(
+            mut self,
+            path: impl Into<RoutePath>,
+            handler: impl IntoRouteHandler<F, I, O>,
+        ) -> Self {
+            self.root_route.route(path.into(), Route::new_unchecked("/").$method(handler));
+            self
+        }
+    };
+}
+
+impl WebServiceBuilder {
+    build_route_method!(get);
+    build_route_method!(post);
+    build_route_method!(delete);
+    build_route_method!(patch);
 }
 
 impl WebServiceBuilder {
@@ -135,19 +161,16 @@ impl WebServiceBuilder {
         let resource_name = T::get_table_definition().table_name.clone();
         self.resources.add_resource::<T>();
         self.forms.insert(resource_name.clone(), T::get_form());
-        // self.
-        self.migrations.push(Box::new(move |sys: DataSystem| {
-            Box::pin(async move {
-                let Some(provider) = sys.get::<T>() else {
-                    return Err(
-                        "Couldn't retreive data provider from system - this shouldn't happen."
-                            .to_string(),
-                    );
-                };
-                provider.clone().run_migrations().await?;
-                Ok(())
-            })
-        }));
+
+        // TODO: I've fucked up the mgirations :(
+        // // self.
+        // let migration = Migration::<T>::compare(
+        //     None, // TODO: Need to get the old migration
+        //     &DatabaseDefinition::new_unchecked("postgres")
+        //         .table(T::get_table_definition())
+        //         .into(),
+        // );
+        // // self.migrations.push();
 
         /************************************************************************************/
         //  BUILD THE ROUTES
@@ -163,12 +186,7 @@ impl WebServiceBuilder {
         self
     }
 
-    pub async fn build_service(self) -> WebService {
-        // DataSystem to State
-        // migrations run (if turned on)
-        // Build routes
-        // save forms
-
+    pub fn build_service(self) -> WebService {
         WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
@@ -176,6 +194,7 @@ impl WebServiceBuilder {
                 resources: self.resources.build(),
                 // router: self.router,
                 routes: self.root_route,
+                _migrations: Arc::new(Mutex::new(self.migrations)),
             })
             .clone(),
         }
@@ -184,8 +203,8 @@ impl WebServiceBuilder {
 
 type RequestMetrics = ();
 impl WebService {
-    // TODO: Clean this up a bit
     fn print_welcome_message(&self) {
+        // TODO: Bring this into a template file (.txt or .md)
         log::info!(
             r#"
 =============================================
@@ -225,18 +244,27 @@ impl WebService {
             .connect(&self.config.database_conn_string)
             .await
             .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?");
-        // let thread_pool = ThreadPool::new(self.config.max_threads);
+        let data_providers = &self.resources.connect(db_pool).await;
 
-        // The custom implementation!
+        // // TODO: Run migrations
+        // let migrations: MigrationRunners;
+        // {
+        //     let mut mutex_guard = self.migrations.lock()?;
+        //     migrations = mutex_guard.drain(0..).collect();
+        // }
+        // for migration in migrations {
+        //     migration(data_providers.clone()).await?
+        // }
+
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
         log::info!("Starting service on {}", &bind_addr);
         let listener = TcpListener::bind(&bind_addr).unwrap();
-        let data_providers = &self.resources.connect(db_pool).await;
         println!("Waiting for connection....");
         while let Ok((stream, _addr)) = listener.accept() {
             println!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
+            // TODO: Spawn these as async tasks - tokio::spawn isn't working
             // tokio::spawn(async move { svc.handle_request(stream) });
             svc.handle_request(
                 stream,
