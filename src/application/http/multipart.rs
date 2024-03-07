@@ -1,9 +1,4 @@
-use std::{
-    default,
-    io::{BufRead, BufReader, Read},
-};
-
-use regex::Regex;
+use std::io::{BufRead, BufReader};
 
 use super::{headers::Headers, route::HttpBody};
 
@@ -110,27 +105,8 @@ pub fn parse_multipart_request(
     Ok(HttpBody::Multipart(parser.parts))
 }
 
-// fn split_chunks<T: std::io::Read>(
-//     boundary: &str,
-//     bytes: &mut BufReader<T>,
-// ) -> Result<Vec<MultipartPart>, crate::Error> {
-//     let boundary = format!("--{}", boundary);
-//     let mut chunk: Vec<u8> = Vec::new();
-//     let mut part = Vec::new();
-//     let mut multipart_parts = Vec::new();
-//     while bytes.read_until(b'\n', &mut chunk)? > 0 {
-//         if chunk[0..=boundary.len()] == *boundary.as_bytes() {
-//             let mut stream = BufReader::new(chunk);
-//             let headers = Headers::parse_headers(&mut stream)?;
-//             let mut content = Vec::new();
-//             stream.read_to_end(&mut content)?;
-//             parts.push(MultipartPart {
-//                 headers,
-//                 content,
-//             })
-//         } else {
-//             part.append(&mut chunk);
-//         }
-//     }
-//     todo!()
-// }
+pub trait FromMultipartPart {
+    fn from_multipart_part(part: MultipartPart) -> Option<Self>
+    where
+        Self: Sized;
+}

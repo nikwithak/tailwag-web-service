@@ -116,6 +116,7 @@ macro_rules! build_route_method {
             path: impl Into<RoutePath>,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
+            // TODO: Refactor the path definitions here
             self.root_route.route(path.into(), Route::new_unchecked("/").$method(handler));
             self
         }
