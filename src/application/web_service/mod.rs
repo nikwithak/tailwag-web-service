@@ -27,7 +27,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::IntoRouteHandler;
+use super::http::route::{IntoRouteHandler, RouteHandler};
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -272,8 +272,7 @@ impl WebService {
                     data_providers: data_providers.clone(),
                 },
             )
-            .await
-            .unwrap();
+            .await?;
             // let task_id = thread_pool.spawn(|| {
             // Box::pin(async move {
             //     svc.handle_request(stream).await.unwrap();
@@ -293,10 +292,12 @@ impl WebService {
     ) -> Result<RequestMetrics, crate::Error> {
         // THis is very much ina  "debugging" state - need to clean up once it's working.
         log::info!("Connection received from {}", stream.peer_addr()?);
+        // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
         let request = crate::application::http::route::Request::try_from(&stream)?;
         let path = &request.path;
         println!("FULL PATH: {}", &path);
         let request_handler = self.routes.find_handler(path, &request.method);
+
         let response = match request_handler {
             Some(handler) => handler.call(request, context).await,
             None => crate::application::http::route::Response {
@@ -313,4 +314,9 @@ impl WebService {
     }
 
     // fn handle_request(&)
+}
+
+#[test]
+fn test_handle_request_multipart() {
+    let request = r#""#;
 }

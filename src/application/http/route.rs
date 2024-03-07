@@ -1,7 +1,8 @@
+use hyper::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    io::{BufRead, Read},
+    io::{BufRead, BufReader, Read},
     ops::Deref,
     pin::Pin,
 };
@@ -10,7 +11,7 @@ use tailwag_orm::{
     queries::Insertable,
 };
 
-use crate::application::http::headers::Headers;
+use crate::application::http::{headers::Headers, multipart::parse_multipart_request};
 
 pub type RoutePath = String;
 
@@ -140,10 +141,10 @@ impl Route {
 
     pub fn route(
         &mut self,
-        path: RoutePath,
+        path: impl Into<RoutePath>,
         route: Route,
     ) {
-        self.children.insert(path, Box::new(route));
+        self.children.insert(path.into(), Box::new(route));
     }
 }
 
@@ -254,35 +255,32 @@ impl<T: for<'a> Deserialize<'a>> FromRequest for T {
     fn from(req: Request) -> Self {
         // TODO: Return this as a Result so we can route based on it later
         // ^^^ that didn't work,
-        serde_json::from_slice(&req.body.bytes).unwrap()
+        match &req.body {
+            HttpBody::Json(body) => serde_json::from_slice(body.as_bytes()).unwrap(),
+            HttpBody::Bytes(_) => todo!(),
+            HttpBody::Stream(_) => todo!(),
+            HttpBody::Multipart(_) => todo!(),
+            HttpBody::None => todo!(),
+        }
     }
 }
 
-// Trying to find a way to use both a request AND the context / state
-// pub struct ContextualRequest {
-//     request: Request,
-//     context: Context,
-// }
-
-// pub trait FromContextualRequest {
-//     fn from(ctx_req: ContextualRequest) -> Self;
-// }
-
-// impl<T: FromRequest> FromContextualRequest for T {
-//     fn from(ctx_req: ContextualRequest) -> Self {
-//         <Self as FromRequest>::from(ctx_req.request)
-//     }
-// }
-
 #[derive(Debug)]
-pub struct HttpBody {
-    pub bytes: Vec<u8>,
+pub enum HttpBody {
+    // pub bytes: Vec<u8>,
+    Json(String),
+    Bytes(Vec<u8>),
+    Multipart(Vec<MultipartPart>),
+    Stream(std::io::BufReader<std::net::TcpStream>),
+    None,
 }
+
+const DEFAULT_CONTENT_TYPE: &str = "application/json";
 
 impl TryFrom<&std::net::TcpStream> for Request {
     fn try_from(stream: &std::net::TcpStream) -> Result<Self, Self::Error> {
         let mut stream = std::io::BufReader::new(stream);
-        let mut headers = Headers::default();
+
         let mut line = String::new();
         stream.read_line(&mut line)?;
         let mut routing_line = line.split_whitespace();
@@ -291,40 +289,38 @@ impl TryFrom<&std::net::TcpStream> for Request {
         else {
             todo!("Handle the 400 BAD REQUEST case")
         };
-        let mut line = String::new();
-
-        // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
-        while stream.read_line(&mut line)? > 2 {
-            println!("LINE: {}", &line);
-            headers.insert_parsed(&line)?;
-            println!("{}", &line);
-            line = String::new();
-        }
-        dbg!(&headers);
+        let headers = Headers::parse_headers(&mut stream)?;
         let content_length: usize =
             headers.get("content-length").and_then(|c| c.parse().ok()).unwrap_or(0);
+        let content_type_header =
+            headers.get("content-type").map(|s| s.as_str()).unwrap_or(DEFAULT_CONTENT_TYPE);
 
-        println!("Content length is {}", content_length);
-        let mut body = HttpBody {
-            bytes: Vec::<u8>::with_capacity(content_length),
+        let (content_type, content_type_params) =
+            content_type_header.split_once(';').unwrap_or((content_type_header, ""));
+        type E = HttpBody;
+
+        let body = if content_length > 0 {
+            let mut bytes = vec![0; content_length];
+            log::info!("Reading {} bytes", content_length);
+            stream.read_exact(&mut bytes)?;
+            match content_type.to_lowercase().as_str() {
+                "application/json" => {
+                    dbg!(E::Json(String::from_utf8(bytes)?))
+                },
+                "multipart/form-data" => parse_multipart_request(content_type_params, bytes)?,
+                _ => todo!("Unsupported content-type"),
+            }
+        } else {
+            HttpBody::None
         };
-        // TODO: Need to limit request size.
-        // Also need to handle laaaarge files, e.g. pass the stream itself instead of just the content.
-        if content_length > 0 {
-            println!("Reading {} bytes", content_length);
-            let mut buf = vec![0; content_length];
-            stream.read_exact(&mut buf)?;
-            body.bytes = buf;
-            println!("READ: {}", String::from_utf8(body.bytes.clone()).unwrap());
-        }
 
-        dbg!(Ok(Request {
+        Ok(Request {
             method: method.try_into()?,
             path: path.to_string(), // TODO: Validate it
             http_version: http_version.try_into()?,
             headers,
             body,
-        }))
+        })
     }
 
     type Error = crate::Error;
@@ -442,6 +438,12 @@ mod into_route_handler {
 
     use super::{FromContext, FromRequest, IntoResponse, RouteHandler};
 
+    impl IntoRouteHandler<(), (), ()> for RouteHandler {
+        fn into(self) -> RouteHandler {
+            self
+        }
+    }
+
     pub struct RouteArgsStaticRequest;
     /// The generics are merely here for tagging / distinguishing implementations.
     /// F: represents the function signature for the different implementations. This is the one that really matters.
@@ -460,6 +462,24 @@ mod into_route_handler {
             + 'static,
         I: FromRequest + Sized + Send,
         O: IntoResponse + Sized + Send,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, _ctx| {
+                    Box::pin(async move { self(I::from(req)).await.into_response() })
+                }),
+            }
+        }
+    }
+
+    pub struct RouteArgsNoContext;
+
+    impl<F, I, O, Fut> IntoRouteHandler<F, RouteArgsNoContext, (F, I, (O, Fut))> for F
+    where
+        F: Fn(I) -> Fut + Send + Copy + 'static + Sync,
+        I: FromRequest + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+        Fut: Future<Output = O> + 'static + Send,
     {
         fn into(self) -> RouteHandler {
             RouteHandler {
@@ -507,3 +527,5 @@ mod into_route_handler {
     }
 }
 pub use into_route_handler::*;
+
+use super::multipart::MultipartPart;

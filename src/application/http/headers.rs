@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader},
+    net::TcpStream,
+};
 
 use tailwag_macros::Deref;
 
@@ -10,6 +14,31 @@ type HeaderValue = String;
 #[derive(Debug, Deref)]
 pub struct Headers {
     headers: HashMap<HeaderName, HeaderValue>,
+}
+
+impl Headers {
+    pub fn parse_params(params_str: &str) -> HashMap<String, String> {
+        HashMap::from_iter(params_str.split(';').filter_map(|param| {
+            param
+                .trim()
+                .split_once('=')
+                .map(|(a, b)| (a.trim().to_lowercase(), b.trim().to_string()))
+        }))
+    }
+    pub fn parse_headers<T: std::io::Read>(stream: &mut BufReader<T>) -> Result<Self, Error> {
+        let mut headers = Headers::default();
+        let mut line = String::new();
+
+        // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
+        while stream.read_line(&mut line)? > 2 {
+            println!("LINE: {}", &line);
+            headers.insert_parsed(&line)?;
+
+            println!("{}", &line);
+            line = String::new();
+        }
+        Ok(dbg!(headers))
+    }
 }
 
 impl Default for Headers {
@@ -34,10 +63,10 @@ impl Headers {
         &mut self,
         header: &str,
     ) -> Result<(), Error> {
-        let mut split = dbg!(header).split(':');
-        let (Some(name), Some(value)) = (split.next(), split.next()) else {
+        let Some((name, value)) = dbg!(header).split_once(':') else {
             return Err(Error::BadRequest(format!("Failed to parse header: {}", header)));
         };
+
         self.headers.insert(name.to_string().to_lowercase(), value.trim().to_string());
         Ok(())
     }
