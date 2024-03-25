@@ -27,7 +27,8 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{IntoRouteHandler, RouteHandler};
+use super::http::route::{IntoRouteHandler, Request, Response};
+use super::middleware::Middleware;
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -56,6 +57,7 @@ pub struct WebServiceConfig {
 #[allow(private_bounds)]
 pub struct WebServiceInner {
     config: WebServiceConfig,
+    middleware: Vec<Middleware>,
     routes: Route,
     resources: UnconnectedDataSystem,
     _migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
@@ -81,6 +83,7 @@ pub struct WebServiceBuilder {
     root_route: Route,
     migrations: MigrationRunners,
     forms: HashMap<Identifier, Form>,
+    middleware: Vec<Middleware>,
     resources: DataSystemBuilder,
 }
 
@@ -100,10 +103,12 @@ impl Default for WebServiceBuilder {
                 request_timeout_seconds: 30,
             },
             resources: DataSystem::builder(),
+            middleware: Vec::new(),
             migrations: Vec::new(),
             root_route: Route::default(),
             forms: HashMap::new(),
         }
+        // .with_middleware(|| println!("I'm middling the ware!")) // TODO
         .with_resource::<Account>()
         .with_resource::<Session>()
     }
@@ -130,6 +135,14 @@ impl WebServiceBuilder {
     build_route_method!(patch);
 }
 
+type MiddlewareFunction = dyn Send
+    + Sync
+    + FnMut(
+        Request,
+        Context,
+        Box<dyn Fn(Request, Context) -> Pin<Box<dyn Future<Output = Response>>>>,
+    );
+
 impl WebServiceBuilder {
     // Builder functions
     pub fn new(app_name: &str) -> Self {
@@ -140,6 +153,7 @@ impl WebServiceBuilder {
 
     pub fn with_resource<T>(mut self) -> Self
     where
+        // Gross collection of required traits. Need to clean this up.
         T: GetTableDefinition
             + BuildRoutes<T>
             + tailwag_orm::queries::Insertable
@@ -187,7 +201,56 @@ impl WebServiceBuilder {
         self
     }
 
+    pub fn with_middleware(
+        mut self,
+        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
+        func: impl Fn(
+                Request,
+                Context,
+                Box<dyn Fn(Request, Context) -> Response>,
+            ) -> Pin<Box<dyn Future<Output = Response>>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        // TODO+ Send + SPin<Box<tatic
+        // + + Send + Sync + 'static
+        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
+        let middleware = Middleware {
+            handle_request: Box::new(func),
+        };
+        self.middleware.push(middleware);
+
+        self
+    }
+
     pub fn build_service(self) -> WebService {
+        let middleware = self.middleware.into_iter().rev();
+        let middleware_handler: Box<
+            dyn Send
+                + Sync
+                + Fn(
+                    Request,
+                    Context,
+                    // Box<dyn Fn(Request, Context) -> Response>,
+                ) -> Pin<Box<dyn std::future::Future<Output = Response>>>,
+        > = middleware.fold(
+            Box::new(|req: Request, res: Context| {
+                Box::pin(async move {
+                    // todo!(),
+                    Response::default()
+                    // todo!()
+                })
+            }),
+            |acc, middleware_fn| acc,
+        );
+        // Box::new(middleware.fold(
+        //     |req: Request, res: Response| Box::pin(async move {
+        //         todo!()
+        //         // next(req, res)
+        //     },
+        //     |next, middleware_fn| next,
+        // ));
         WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
@@ -196,6 +259,8 @@ impl WebServiceBuilder {
                 // router: self.router,
                 routes: self.root_route,
                 _migrations: Arc::new(Mutex::new(self.migrations)),
+                middleware: todo!(),
+                // middleware: vec![middleware_handler],
             })
             .clone(),
         }
@@ -215,7 +280,7 @@ impl WebService {
             &self.config.application_name,
         );
         log::debug!("CONFIGURED ENVIRONMENT: {:?}", &self.config);
-        #[cfg(feature = "development")]
+        #[cfg(debug_assertions)]
         {
             log::warn!(
                 r#"
@@ -265,8 +330,7 @@ impl WebService {
             println!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
-            // TODO: Spawn these as async tasks - tokio::spawn isn't working
-            // tokio::spawn(async move { svc.handle_request(stream) });
+
             svc.handle_request(
                 stream,
                 Context {
@@ -274,13 +338,7 @@ impl WebService {
                 },
             )
             .await?;
-            // let task_id = thread_pool.spawn(|| {
-            // Box::pin(async move {
-            //     svc.handle_request(stream).await.unwrap();
-            // })
-            // });
 
-            // println!("Spawned worker thread: {}", task_id);
             println!("Waiting for connection....");
         }
         Ok(RunResult::default())
@@ -299,16 +357,28 @@ impl WebService {
         println!("FULL PATH: {}", &path);
         let request_handler = self.routes.find_handler(path, &request.method);
 
-        let response = match request_handler {
-            Some(handler) => handler.call(request, context).await,
-            None => crate::application::http::route::Response {
-                status: crate::application::http::route::HttpStatus::NotFound,
-                headers: Headers::from(vec![]),
-                http_version: crate::application::http::route::HttpVersion::V1_1,
-                body: Vec::with_capacity(0),
-            },
-        };
+        // TODO: Move this to the build_service step, for quick reuse. Middleware will always stay the same.
+        // If you want selectiive middleware, you must wrap *services* behind a route
+        let mut route_handler = Box::new(|req, ctx| async move {
+            match request_handler {
+                Some(handler) => handler.call(req, ctx).await,
+                None => crate::application::http::route::Response {
+                    status: crate::application::http::route::HttpStatus::NotFound,
+                    headers: Headers::from(vec![]), // TODO: Default response headers
+                    http_version: crate::application::http::route::HttpVersion::V1_1,
+                    body: Vec::with_capacity(0),
+                },
+            }
+        });
+        for middleware in self.middleware.iter().rev() {
+            // route_handler = Box::new(|req, ctx| async move {
+            //     (middleware.handle_request)(req, ctx, route_handler).await
+            // })
+            // *(middleware.before_request)()
+            // (middleware.before_request)(request, context)
+        }
 
+        let response = route_handler(request, context).await;
         stream.write_all(&dbg!(response).as_bytes())?;
 
         Ok(())

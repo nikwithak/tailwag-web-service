@@ -334,6 +334,17 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
+impl Default for Response {
+    fn default() -> Self {
+        Self {
+            http_version: HttpVersion::V1_1,
+            status: HttpStatus::NotFound,
+            headers: Headers::default(),
+            body: Vec::new(),
+        }
+    }
+}
+
 impl Response {
     pub fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
