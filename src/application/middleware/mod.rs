@@ -10,7 +10,12 @@
 
 use std::pin::Pin;
 
-use super::http::route::{Context, Request, Response, RouteHandler};
+use super::http::route::{Context, Request, Response};
+
+pub enum MiddlewareResult {
+    Continue(Request, Context),
+    ShortCircuit(Response),
+}
 
 pub struct Middleware {
     pub handle_request: Box<
@@ -19,7 +24,7 @@ pub struct Middleware {
             + Fn(
                 Request,
                 Context,
-                Box<dyn Fn(Request, Context) -> Response>,
-            ) -> Pin<Box<dyn std::future::Future<Output = Response>>>,
+                // Box<dyn FnOnce(Request, Context) -> Response>,
+            ) -> Pin<Box<dyn std::future::Future<Output = MiddlewareResult>>>,
     >,
 }
