@@ -10,11 +10,11 @@
 
 use std::pin::Pin;
 
-use super::http::route::{Context, Request, Response};
+use super::http::route::{Context, IntoResponse, Request, Response};
 
 pub enum MiddlewareResult {
     Continue(Request, Context),
-    ShortCircuit(Response),
+    Response(Response),
 }
 
 pub struct Middleware {
@@ -27,4 +27,19 @@ pub struct Middleware {
                 // Box<dyn FnOnce(Request, Context) -> Response>,
             ) -> Pin<Box<dyn std::future::Future<Output = MiddlewareResult>>>,
     >,
+}
+
+impl Into<MiddlewareResult> for Response {
+    fn into(self) -> MiddlewareResult {
+        MiddlewareResult::Response(self)
+    }
+}
+
+impl<T: IntoResponse> From<Option<T>> for MiddlewareResult {
+    fn from(t: Option<T>) -> Self {
+        match t {
+            Some(t) => t.into_response().into(),
+            None => MiddlewareResult::Response(Response::not_found()),
+        }
+    }
 }

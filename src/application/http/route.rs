@@ -1,7 +1,7 @@
-use hyper::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fmt::Display,
     io::{BufRead, BufReader, Read},
     ops::Deref,
     pin::Pin,
@@ -186,6 +186,30 @@ pub enum HttpStatus {
     InternalServerError = 503,
 }
 
+impl Display for HttpStatus {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let var_name = format!(
+            "{} {}",
+            self.clone() as usize,
+            match self {
+                HttpStatus::Ok => "OK",
+                HttpStatus::Accepted => "Accepted",
+                HttpStatus::BadRequest => "Bad Request",
+                HttpStatus::Unauthorized => "Unauthorized",
+                HttpStatus::Forbidden => "Forbidden",
+                HttpStatus::NotFound => "Not Found",
+                HttpStatus::IAmATeapot => "I Am A Teapot",
+                HttpStatus::InternalServerError => "Internal Server Error",
+                // _ => "Unknown",
+            }
+        );
+        f.write_str(&var_name)
+    }
+}
+
 type RouteHandlerInner = Box<
     dyn Send
         + Sync
@@ -260,6 +284,7 @@ impl<T: for<'a> Deserialize<'a>> FromRequest for T {
             HttpBody::Bytes(_) => todo!(),
             HttpBody::Stream(_) => todo!(),
             HttpBody::Multipart(_) => todo!(),
+            // HttpBody::Plaintext(String) => todo!(),
             HttpBody::None => todo!(),
         }
     }
@@ -334,14 +359,31 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
+macro_rules! default_response {
+    ($fnname:ident, $enumname:ident) => {
+        /// Creates a default request with the given status codes.
+        pub fn $fnname() -> Self {
+            Self {
+                http_version: HttpVersion::V1_1,
+                status: HttpStatus::$enumname,
+                headers: Headers::default(),
+                body: Vec::new(),
+            }
+        }
+    };
+}
+
+/// Factory Methods
+impl Response {
+    default_response!(bad_request, BadRequest);
+    default_response!(not_found, NotFound);
+    default_response!(internal_server_error, InternalServerError);
+    default_response!(unauthorized, Unauthorized);
+}
+
 impl Default for Response {
     fn default() -> Self {
-        Self {
-            http_version: HttpVersion::V1_1,
-            status: HttpStatus::NotFound,
-            headers: Headers::default(),
-            body: Vec::new(),
-        }
+        Self::not_found()
     }
 }
 
@@ -349,8 +391,7 @@ impl Response {
     pub fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(
-            format!("{} {} {}", (&self.http_version as &str), self.status.clone() as usize, "OK")
-                .as_bytes(),
+            format!("{} {}", (&self.http_version as &str), self.status.to_string()).as_bytes(),
         );
         bytes.extend_from_slice(b"\r\n");
         for header in (&self.headers) as &HashMap<_, _> {

@@ -204,6 +204,19 @@ impl WebServiceBuilder {
         self
     }
 
+    pub fn with_before<F: Into<Middleware>>(
+        mut self,
+        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
+        middleware: F,
+    ) -> Self {
+        // TODO+ Send + SPin<Box<tatic
+        // + + Send + Sync + 'static
+        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
+        self.middleware_before.push(middleware.into());
+
+        self
+    }
+
     pub fn with_middleware_before(
         mut self,
         // TODO: Go the route I went with RouteHandler, to automagic some type conversion
@@ -336,9 +349,8 @@ impl WebService {
         println!("FULL PATH: {}", &path);
         let request_handler = self.routes.find_handler(path, &request.method);
 
-        // PREPROCESSIING
+        // PREPROCESSING
         let mut before_ware = self.middleware_before.iter();
-
         let (mut req, mut ctx) = (request, context);
         while let Some(middleware) = before_ware.next() {
             match (middleware.handle_request)(req, ctx).await {
@@ -346,8 +358,8 @@ impl WebService {
                     req = new_req;
                     ctx = new_ctx;
                 },
-                MiddlewareResult::ShortCircuit(res) => {
-                    stream.write_all(&dbg!(res).as_bytes());
+                MiddlewareResult::Response(res) => {
+                    stream.write_all(&dbg!(res).as_bytes())?;
                     return Ok(());
                 },
             }
@@ -364,7 +376,9 @@ impl WebService {
                 },
             }
         });
+
         // POSTPROCESSIING
+        // TODO
 
         let response = route_handler(req, ctx).await;
         stream.write_all(&dbg!(response).as_bytes())?;

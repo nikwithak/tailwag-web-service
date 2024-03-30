@@ -61,10 +61,10 @@ impl Default for Headers {
 impl Headers {
     pub fn insert_parsed(
         &mut self,
-        header: &str,
+        header_line: &str,
     ) -> Result<(), Error> {
-        let Some((name, value)) = dbg!(header).split_once(':') else {
-            return Err(Error::BadRequest(format!("Failed to parse header: {}", header)));
+        let Some((name, value)) = dbg!(header_line).split_once(':') else {
+            return Err(Error::BadRequest(format!("Failed to parse header: {}", header_line)));
         };
 
         self.headers.insert(name.to_string().to_lowercase(), value.trim().to_string());

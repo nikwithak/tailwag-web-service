@@ -37,11 +37,11 @@ regex = "1.9.3"
 reqwest = { version = "0.11.18", features = ["tokio-rustls", "serde_json"] }
 
 # Web Frameworks (Pick one)
-axum = { version = "0.6.19", features = ["macros"] }
+# axum = { version = "0.6.19", features = ["macros"] }
 # actix-web = { version = "4.4.0", features = ["rustls"] }
 
 # Threading / Async
-hyper = "0.14.27"
+# hyper = "0.14.27"
 tokio = { version = "1.29.1", features = [
     "macros",
     "rt-multi-thread",
