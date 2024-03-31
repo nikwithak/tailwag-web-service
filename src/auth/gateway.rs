@@ -114,8 +114,8 @@ impl Into<Middleware> for AuthorizationGateway {
 impl AuthorizationGateway {
     // TODO: Clean this up. Looks a bit too complex / a few different things going on
     pub async fn add_session_to_request(
-        mut request: Request,
-        mut context: Context,
+        request: Request,
+        context: Context,
         // sessions: PostgresDataProvider<Session>,
     ) -> MiddlewareResult {
         let Some(sessions) = context.data_providers.get::<Session>() else {
@@ -256,7 +256,7 @@ pub async fn login(
         access: jwt.clone(),
         refresh: "".into(),
     };
-    let cookie_header_val = format!(
+    let _cookie_header_val = format!(
         "_id={}; HttpOnly; SameSite=None",
         // "_id={}; HttpOnly; Domain={}; Path={}",
         jwt,

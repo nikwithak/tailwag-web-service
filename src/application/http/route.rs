@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     io::{BufRead, Read},
     ops::Deref,
@@ -36,20 +36,20 @@ enum RoutePolicy {
 struct PoliciedRouteHandler {
     #[deref]
     handler: Box<RouteHandler>,
-    policy: RoutePolicy,
+    _policy: RoutePolicy,
 }
 
 impl PoliciedRouteHandler {
     pub fn public(handler: RouteHandler) -> Self {
         Self {
             handler: Box::new(handler),
-            policy: RoutePolicy::Public,
+            _policy: RoutePolicy::Public,
         }
     }
     pub fn protected(handler: RouteHandler) -> Self {
         Self {
             handler: Box::new(handler),
-            policy: RoutePolicy::Protected,
+            _policy: RoutePolicy::Protected,
         }
     }
 }
@@ -86,12 +86,6 @@ impl Route {
                 // TODO: Better way to split/parse the route string, instead of stripping and readding the /
                 route =
                     route.and_then(|route| route.children.get(&segment.to_string()).map(|r| &**r));
-
-                if let Some(route) = &route {
-                    println!("ROUTE SEGMENT: {}", &segment);
-                } else {
-                    println!("SEGMENT: {} NOT FOUND", &segment);
-                }
             }
         }
 
@@ -344,7 +338,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
         let (Some(method), Some(path), Some(http_version)) =
             (routing_line.next(), routing_line.next(), routing_line.next())
         else {
-            todo!("Handle the 400 BAD REQUEST case")
+            Err(Self::Error::BadRequest(format!("Invalid routing header found: {}", &line)))?
         };
         let headers = Headers::parse_headers(&mut stream)?;
         let content_length: usize =
