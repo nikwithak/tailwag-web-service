@@ -14,7 +14,7 @@ use super::http::route::{Context, IntoResponse, Request, Response};
 
 pub enum MiddlewareResult {
     Continue(Request, Context),
-    Response(Response),
+    Respond(Response),
 }
 
 pub struct Middleware {
@@ -31,7 +31,7 @@ pub struct Middleware {
 
 impl Into<MiddlewareResult> for Response {
     fn into(self) -> MiddlewareResult {
-        MiddlewareResult::Response(self)
+        MiddlewareResult::Respond(self)
     }
 }
 
@@ -39,7 +39,7 @@ impl<T: IntoResponse> From<Option<T>> for MiddlewareResult {
     fn from(t: Option<T>) -> Self {
         match t {
             Some(t) => t.into_response().into(),
-            None => MiddlewareResult::Response(Response::not_found()),
+            None => MiddlewareResult::Respond(Response::not_found()),
         }
     }
 }

@@ -125,7 +125,8 @@ macro_rules! build_route_method {
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
             // TODO: Refactor the path definitions here
-            self.root_route.route(path.into(), Route::new_unchecked("/").$method(handler));
+            // TODO: Don't overwrite route if GET/POST are called separatey
+            self.root_route.route(path.into(), Route::new().$method(handler));
             self
         }
     };
@@ -136,6 +137,10 @@ impl WebServiceBuilder {
     build_route_method!(post);
     build_route_method!(delete);
     build_route_method!(patch);
+    build_route_method!(get_public);
+    build_route_method!(post_public);
+    build_route_method!(delete_public);
+    build_route_method!(patch_public);
 }
 
 type MiddlewareFunction = dyn Send
@@ -358,7 +363,7 @@ impl WebService {
                     req = new_req;
                     ctx = new_ctx;
                 },
-                MiddlewareResult::Response(res) => {
+                MiddlewareResult::Respond(res) => {
                     stream.write_all(&dbg!(res).as_bytes())?;
                     return Ok(());
                 },

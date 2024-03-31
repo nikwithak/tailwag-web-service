@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, Read},
     ops::Deref,
     pin::Pin,
 };
+use tailwag_macros::Deref;
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
     queries::Insertable,
@@ -26,12 +27,37 @@ pub type RoutePath = String;
 //     }
 // }
 
+enum RoutePolicy {
+    Public,
+    Protected,
+}
+
+#[derive(Deref)]
+struct PoliciedRouteHandler {
+    #[deref]
+    handler: Box<RouteHandler>,
+    policy: RoutePolicy,
+}
+
+impl PoliciedRouteHandler {
+    pub fn public(handler: RouteHandler) -> Self {
+        Self {
+            handler: Box::new(handler),
+            policy: RoutePolicy::Public,
+        }
+    }
+    pub fn protected(handler: RouteHandler) -> Self {
+        Self {
+            handler: Box::new(handler),
+            policy: RoutePolicy::Protected,
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct Route {
-    path: RoutePath,
-    handlers: HashMap<HttpMethod, Box<RouteHandler>>,
+    handlers: HashMap<HttpMethod, PoliciedRouteHandler>,
     children: HashMap<RoutePath, Box<Route>>,
-    // TODO: Should do one of htese merkel tree things / Trie
 }
 impl std::fmt::Debug for Route {
     fn fmt(
@@ -39,7 +65,6 @@ impl std::fmt::Debug for Route {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         f.debug_struct("Route")
-            .field("path", &self.path)
             .field("handlers", &self.handlers.keys())
             .field("children", &self.children)
             .finish()
@@ -63,7 +88,7 @@ impl Route {
                     route.and_then(|route| route.children.get(&segment.to_string()).map(|r| &**r));
 
                 if let Some(route) = &route {
-                    println!("SEGMENT: {} ROUTE: {}", &segment, route.path);
+                    println!("ROUTE SEGMENT: {}", &segment);
                 } else {
                     println!("SEGMENT: {} NOT FOUND", &segment);
                 }
@@ -81,14 +106,13 @@ impl Route {
         // for segment in path_segments.iter() {}
         // let mut route = self;
 
-        route.and_then(|r| r.handlers.get(method).map(|handler| &**handler))
+        route.and_then(|r| r.handlers.get(method).map(|handler| &***handler)) // &*** = gets to the inner RouteHandler carrying the function
     }
 }
 
 impl Default for Route {
     fn default() -> Self {
         Self {
-            path: "/".into(),
             handlers: Default::default(),
             children: Default::default(),
         }
@@ -100,7 +124,18 @@ macro_rules! impl_method {
             mut self,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.handlers.insert(HttpMethod::$variant, Box::new(handler.into()));
+            self.handlers
+                .insert(HttpMethod::$variant, PoliciedRouteHandler::protected(handler.into()));
+            self
+        }
+    };
+    ($method:ident:$variant:ident, public) => {
+        pub fn $method<F, I, O>(
+            mut self,
+            handler: impl IntoRouteHandler<F, I, O>,
+        ) -> Self {
+            self.handlers
+                .insert(HttpMethod::$variant, PoliciedRouteHandler::public(handler.into()));
             self
         }
     };
@@ -110,24 +145,21 @@ impl Route {
     impl_method!(post:Post);
     impl_method!(delete:Delete);
     impl_method!(patch:Patch);
+    impl_method!(get_public:Get, public);
+    impl_method!(post_public:Post, public);
+    impl_method!(delete_public:Delete, public);
+    impl_method!(patch_public:Patch, public);
 }
 
 #[allow(unused)]
 impl Route {
     // TODO: Impl the RoutePath / ValidatedString trait
-    pub fn new(path: &str) -> Result<Self, String> {
+    pub fn new() -> Self {
         // TODO: Verify route allowed syntax
-        Ok(Self {
-            path: path.to_string(),
+        Self {
             handlers: Default::default(),
             children: Default::default(),
-        })
-    }
-
-    /// Creates a new RoutePath with the given path.
-    /// Panics if the path is invalid.
-    pub fn new_unchecked(path: &str) -> Self {
-        Self::new(path).expect("Path input is not valid")
+        }
     }
 
     pub fn with_route(

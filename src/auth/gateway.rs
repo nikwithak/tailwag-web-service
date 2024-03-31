@@ -92,7 +92,7 @@ pub struct RequestContext {
     _account: AccountType,
 }
 
-pub struct AuthorizationGateway {}
+pub struct AuthorizationGateway;
 
 #[derive(Serialize, Deserialize)]
 struct JwtClaims {
@@ -146,6 +146,10 @@ impl AuthorizationGateway {
             }
         }
         let Some(authz_token) = extract_authz_token(&request) else {
+            // TODO: Allow other whitelisted
+            if ["/login", "/register"].contains(&request.path.as_str()) {
+                return MiddlewareResult::Continue(request, context);
+            }
             return Response::unauthorized().into();
         };
 
@@ -157,7 +161,7 @@ impl AuthorizationGateway {
             Ok(jwt) => jwt,
             Err(e) => {
                 println!("error: {}", e);
-                return MiddlewareResult::Response(Response::unauthorized());
+                return MiddlewareResult::Respond(Response::unauthorized());
             },
         };
         let JwtClaims {
@@ -175,11 +179,11 @@ impl AuthorizationGateway {
                 }
                 MiddlewareResult::Continue(request, context)
             },
-            Ok(None) => MiddlewareResult::Response(Response::unauthorized()),
+            Ok(None) => MiddlewareResult::Respond(Response::unauthorized()),
             Err(e) => {
                 // NOTE:
                 log::error!("An error occurred while authorizing the account: {:?}", e);
-                MiddlewareResult::Response(Response::unauthorized())
+                MiddlewareResult::Respond(Response::unauthorized())
             },
         }
     }
@@ -188,7 +192,7 @@ impl AuthorizationGateway {
 // The actual middleware function
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
-    email_address: String, // TODO: Why is this a UUID? (because I need to fix filterability on my ORM)
+    email_address: String,
     password: String,
 }
 
@@ -248,7 +252,7 @@ pub async fn login(
     )
     .expect("Couldn't encode JWT");
 
-    let mut response = LoginResponse {
+    let response = LoginResponse {
         access: jwt.clone(),
         refresh: "".into(),
     };
