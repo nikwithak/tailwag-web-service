@@ -180,6 +180,7 @@ pub enum HttpMethod {
     Post,
     Delete,
     Patch,
+    Options,
 }
 
 impl TryFrom<&str> for HttpMethod {
@@ -192,6 +193,7 @@ impl TryFrom<&str> for HttpMethod {
             "POST" => E::Post,
             "PATCH" => E::Patch,
             "DELETE" => E::Delete,
+            "OPTIONS" => E::Options,
             _ => Err(format!("Unsupported HTTP method: {}", value))?,
         };
         Ok(method)

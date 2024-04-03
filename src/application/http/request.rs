@@ -52,7 +52,7 @@ pub enum HttpMethod {
     Patch,
     Put,
     Delete,
-    // Options,
+    Options,
     // ..
     // TODO: Add the rest (no pun intended)
 }
