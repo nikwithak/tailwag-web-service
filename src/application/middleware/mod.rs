@@ -1,3 +1,4 @@
+pub mod cors;
 // TODO
 
 // Middleware to include as defaults:
@@ -17,21 +18,22 @@ pub enum MiddlewareResult {
     Respond(Response),
 }
 
+type MiddlewareHandler = Box<
+    dyn Send
+        + Sync
+        + Fn(
+            Request,
+            Context,
+            // Box<dyn FnOnce(Request, Context) -> Response>,
+        ) -> Pin<Box<dyn std::future::Future<Output = MiddlewareResult>>>,
+>;
 pub struct Middleware {
-    pub handle_request: Box<
-        dyn Send
-            + Sync
-            + Fn(
-                Request,
-                Context,
-                // Box<dyn FnOnce(Request, Context) -> Response>,
-            ) -> Pin<Box<dyn std::future::Future<Output = MiddlewareResult>>>,
-    >,
+    pub handle_request: MiddlewareHandler,
 }
 
-impl Into<MiddlewareResult> for Response {
-    fn into(self) -> MiddlewareResult {
-        MiddlewareResult::Respond(self)
+impl From<Response> for MiddlewareResult {
+    fn from(val: Response) -> Self {
+        MiddlewareResult::Respond(val)
     }
 }
 
@@ -41,5 +43,12 @@ impl<T: IntoResponse> From<Option<T>> for MiddlewareResult {
             Some(t) => t.into_response().into(),
             None => MiddlewareResult::Respond(Response::not_found()),
         }
+    }
+}
+
+impl From<(Request, Context)> for MiddlewareResult {
+    fn from(val: (Request, Context)) -> Self {
+        let (req, ctx): (Request, Context) = val;
+        MiddlewareResult::Continue(req, ctx)
     }
 }
