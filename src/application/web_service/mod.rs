@@ -28,6 +28,7 @@ use crate::{
 };
 
 use super::http::route::{IntoRouteHandler, Request, Response};
+use super::middleware::cors::CorsMiddleware;
 use super::middleware::{Middleware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
 
@@ -114,6 +115,7 @@ impl Default for WebServiceBuilder {
         // .with_middleware(|| println!("I'm middling the ware!")) // TODO
         .with_resource::<Account>()
         .with_resource::<Session>()
+        .with_before(CorsMiddleware::default())
     }
 }
 

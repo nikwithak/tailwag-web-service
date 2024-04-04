@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     io::{BufRead, BufReader},
-    net::TcpStream,
+    ops::DerefMut,
 };
 
 use tailwag_macros::Deref;
@@ -14,6 +15,11 @@ type HeaderValue = String;
 #[derive(Debug, Deref)]
 pub struct Headers {
     headers: HashMap<HeaderName, HeaderValue>,
+}
+impl DerefMut for Headers {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.headers
+    }
 }
 
 impl Headers {

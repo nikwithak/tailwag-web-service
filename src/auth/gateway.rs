@@ -145,11 +145,13 @@ impl AuthorizationGateway {
                 None
             }
         }
+
+        // TODO: Allow other whitelisted
+        if ["/login", "/register"].contains(&request.path.as_str()) {
+            return MiddlewareResult::Continue(request, context);
+        }
+
         let Some(authz_token) = extract_authz_token(&request) else {
-            // TODO: Allow other whitelisted
-            if ["/login", "/register"].contains(&request.path.as_str()) {
-                return MiddlewareResult::Continue(request, context);
-            }
             return Response::unauthorized().into();
         };
 

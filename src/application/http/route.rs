@@ -1,3 +1,4 @@
+use reqwest::header::HeaderName;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -397,6 +398,7 @@ macro_rules! default_response {
                 headers: Headers::default(),
                 body: Vec::new(),
             }
+            .with_header("access-control-allow-origin", "http://localhost:3000")
         }
     };
 }
@@ -407,11 +409,30 @@ impl Response {
     default_response!(not_found, NotFound);
     default_response!(internal_server_error, InternalServerError);
     default_response!(unauthorized, Unauthorized);
+    default_response!(ok, Ok);
 }
 
 impl Default for Response {
     fn default() -> Self {
         Self::not_found()
+    }
+}
+
+impl Response {
+    pub fn with_body(
+        mut self,
+        bytes: Vec<u8>,
+    ) -> Self {
+        self.body = bytes;
+        self
+    }
+    pub fn with_header(
+        mut self,
+        name: impl Into<String>,
+        val: impl Into<String>,
+    ) -> Self {
+        self.headers.insert(name.into().to_lowercase(), val.into());
+        self
     }
 }
 
@@ -470,7 +491,10 @@ impl<T: Serialize> IntoResponse for T {
                 headers: Headers::from(vec![("Content-Type", "application/json")]), // TODO: Make this dynamic
                 http_version: crate::application::http::route::HttpVersion::V1_1,
                 body: body.into_bytes(),
-            },
+            }
+            // TODO: HAAAAAAACK need to fix middleware so I can actually wrap this properly
+            .with_header("access-control-allow-origin", "http://localhost:3000")
+            .with_header("access-control-allow-credentials", "true"),
             Err(_) => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::InternalServerError,
                 headers: Headers::from(vec![]),
