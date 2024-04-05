@@ -315,6 +315,7 @@ impl<T: for<'a> Deserialize<'a>> FromRequest for T {
             HttpBody::Multipart(_) => todo!(),
             // HttpBody::Plaintext(String) => todo!(),
             HttpBody::None => todo!(),
+            HttpBody::Html(_) => todo!(),
         }
     }
 }
@@ -326,6 +327,7 @@ pub enum HttpBody {
     Bytes(Vec<u8>),
     Multipart(Vec<MultipartPart>),
     Stream(std::io::BufReader<std::net::TcpStream>),
+    Html(String),
     None,
 }
 
@@ -489,6 +491,7 @@ impl<T: Serialize> IntoResponse for T {
             Ok(body) => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::Ok,
                 headers: Headers::from(vec![("Content-Type", "application/json")]), // TODO: Make this dynamic
+                // headers: Headers::defaultat(),
                 http_version: crate::application::http::route::HttpVersion::V1_1,
                 body: body.into_bytes(),
             }
@@ -505,11 +508,23 @@ impl<T: Serialize> IntoResponse for T {
     }
 }
 
+impl IntoResponse for Response {
+    fn into_response(self) -> Response {
+        self
+    }
+}
+
 pub trait FromRequest
 where
     Self: Sized,
 {
     fn from(req: Request) -> Self;
+}
+
+impl FromRequest for Request {
+    fn from(req: Request) -> Self {
+        req
+    }
 }
 
 pub trait FromContext
@@ -549,6 +564,7 @@ mod into_route_handler {
     }
 
     pub struct RouteArgsStaticRequest;
+
     /// The generics are merely here for tagging / distinguishing implementations.
     /// F: represents the function signature for the different implementations. This is the one that really matters.
     /// Tag: Merely tag structs, to disambiguate implementations when there is trait overlap.
@@ -575,6 +591,38 @@ mod into_route_handler {
             }
         }
     }
+
+    // Let's break that down.
+
+    // We define the following Generics:
+    //     GENERICS: F, I, an O.
+
+    // For a breakdown of the
+
+    // F is the function type, and the main type that we are implementing the IntoRH for. I is the input type of F, O is the output type of F.
+
+    // We define IntoRouteHanlder in terms of F (The function type we want to use as a handler),
+    // Tag (RouteArgsStaticRequest, in this case), and the input/output types.
+
+    // So... why do we need so many generics, to all do the same thing? We need I/O to be generic in order to define them
+    // in terms of the FromRequest and IntoResponse trait.
+    // Because of a restriction imposed by the compiler, we can't use a generic in the implemnetation unles sit's also a generic in
+    // either the trait, or the struct implementing the trait.
+
+    // Unfortunately... this doesn't flow into the `where` clauses - which is to say, we can't do a generic implemnetation *over* a generic struct. That's why we have
+    // to define IntoRouteHandler (and not getting the benefits of Into<RouteHandler>)
+
+    // So where does RouteArgsStaticRequest (the Tag) come in? The tag was to get around a restriction of multiple implementations
+    // using the same or similar generics, which adds ambiguity. As the developer, I can reasonably assume
+    // that the implementations are unique, at least for my specific use cases, but the compiler doesn't
+    // know how to cope with the other cases, since it is possible for the generics of `F(I) -> O` to overlap both.
+
+    // The Tag ensures that the compiler will magically choose the right implementation, if only one applies.
+    // In the event that a class overlaps in actual usage, then the user will have to disambiuate using these tags.
+
+    // As a user, you shouldn't have to ever worry or care about these weird generics - this
+    // abstraction is intended ot make coding with this library more ergonomic over closures
+    // and simple function types. This explanation is only here for those curious enough to look under the hood.
 
     pub struct RouteArgsNoContext;
 

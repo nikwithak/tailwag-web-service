@@ -1,7 +1,12 @@
 use std::collections::BTreeSet;
 
-use tailwag_macros::derive_magic;
-use tailwag_web_service::auth::gateway::{self, AuthorizationGateway};
+use tailwag_web_service::{
+    application::http::{
+        response::HttpResponse,
+        route::{HttpBody, IntoResponse, Response},
+    },
+    auth::gateway,
+};
 use uuid::Uuid;
 
 mod tailwag {
@@ -28,6 +33,7 @@ mod tailwag {
     tailwag::macros::Display,
     tailwag::forms::macros::GetForm,
 )]
+#[actions(display)]
 pub struct Event {
     id: Uuid,
     start_time: chrono::NaiveDateTime,
@@ -54,4 +60,12 @@ async fn main() {
         .run()
         .await
         .unwrap();
+}
+
+async fn display(id: String) -> Response {
+    let html_template = include_bytes!("form.html");
+
+    let mut res = Response::ok();
+    res.body = html_template.to_vec();
+    res
 }

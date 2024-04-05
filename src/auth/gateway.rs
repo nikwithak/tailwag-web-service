@@ -146,7 +146,9 @@ impl AuthorizationGateway {
             }
         }
 
-        // TODO: Allow other whitelisted
+        // TODO: Allow other whitelisted.
+        // Expose through Context, maybe, so that we can check the authz policy of the
+        // destination route?
         if ["/login", "/register"].contains(&request.path.as_str()) {
             return MiddlewareResult::Continue(request, context);
         }

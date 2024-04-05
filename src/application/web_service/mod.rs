@@ -27,7 +27,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{IntoRouteHandler, Request, Response};
+use super::http::route::{IntoResponse, IntoRouteHandler, Request, Response};
 use super::middleware::cors::CorsMiddleware;
 use super::middleware::{Middleware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
@@ -159,6 +159,21 @@ impl WebServiceBuilder {
         let mut builder = Self::default();
         builder.config.application_name = app_name.to_string();
         builder
+    }
+
+    pub fn with_static_files(mut self) -> Self {
+        async fn echo(req: Request) -> Option<String> {
+            // value
+            // Hacky implementation
+            // let path = req.path.split('/');
+            // if path.pop().filter(|p| p).is_none() {
+            //     return None;
+            // } else {
+            //     None
+            // }
+            format!("Path: {}", &req.path).into()
+        }
+        self.get("/static", echo)
     }
 
     pub fn with_resource<T>(mut self) -> Self
