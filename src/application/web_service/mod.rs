@@ -410,8 +410,3 @@ impl WebService {
 
     // fn handle_request(&)
 }
-
-#[test]
-fn test_handle_request_multipart() {
-    let request = r#""#;
-}

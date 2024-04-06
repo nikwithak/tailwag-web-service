@@ -1,5 +1,7 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, io::Read, path::Path};
 
+use serde::Serialize;
+use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use tailwag_web_service::{
     application::http::{
         response::HttpResponse,
@@ -33,7 +35,7 @@ mod tailwag {
     tailwag::macros::Display,
     tailwag::forms::macros::GetForm,
 )]
-#[actions(display)]
+#[views(display_event, css, form, banner)]
 pub struct Event {
     id: Uuid,
     start_time: chrono::NaiveDateTime,
@@ -52,7 +54,7 @@ pub struct EventGroup {
 #[tokio::main]
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Events Service")
-        .with_before(gateway::AuthorizationGateway)
+        // .with_before(gateway::AuthorizationGateway)
         .post_public("login", gateway::login)
         .post_public("register", gateway::register)
         .with_resource::<Event>()
@@ -62,10 +64,55 @@ async fn main() {
         .unwrap();
 }
 
-async fn display(id: String) -> Response {
-    let html_template = include_bytes!("form.html");
+fn css() -> Response {
+    load_static("globals.css")
+}
+fn form() -> Response {
+    load_static("form.html")
+}
+fn banner() -> Response {
+    load_static("banner.jpg")
+}
 
-    let mut res = Response::ok();
-    res.body = html_template.to_vec();
-    res
+pub async fn display_event(events: PostgresDataProvider<Event>) -> Response {
+    load_template("event.md.template", events.all().await.unwrap().next().unwrap())
+}
+
+fn get_content_type(filename: &str) -> &'static str {
+    filename
+        .split('.')
+        .last()
+        .map(|ext| match ext {
+            "html" => "text/html",
+            "css" => "text/css",
+            "json" => "application/json",
+            "pdf" => "application/pdf",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "png" => "image/png",
+            "webp" => "image/webp",
+            "md" => "text/markdown",
+            _ => "application/octet-stream",
+        })
+        .unwrap_or("application/octet-stream")
+}
+
+fn load_template(
+    filename: &str,
+    obj: Event,
+) -> Response {
+    tailwag_web_service::application::static_files::load_template(filename, obj)
+}
+
+fn load_static(filename: &str) -> Response {
+    let Ok(file) = std::fs::read(format!("static/{}", filename)) else {
+        return Response::bad_request();
+    };
+    // TODO: DRY out to MimeType type
+    let mime_type = get_content_type(filename);
+
+    Response::ok()
+        .with_body(file)
+        // TODO: Parse the file extension into a content-type MIME-Type
+        .with_header("content-type", mime_type)
 }

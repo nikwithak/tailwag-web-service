@@ -491,7 +491,6 @@ impl<T: Serialize> IntoResponse for T {
             Ok(body) => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::Ok,
                 headers: Headers::from(vec![("Content-Type", "application/json")]), // TODO: Make this dynamic
-                // headers: Headers::defaultat(),
                 http_version: crate::application::http::route::HttpVersion::V1_1,
                 body: body.into_bytes(),
             }
