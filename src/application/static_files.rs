@@ -1,10 +1,44 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, io::Read, path::Path};
+
+use templater::walk_dir::FileWalker;
 
 use super::http::route::Response;
 
+#[derive(Clone)]
 struct StaticFiles {
     files: HashMap<String, Vec<u8>>,
     templates: HashMap<String, Vec<u8>>,
+}
+
+impl StaticFiles {
+    pub fn load_static_dir(path: &Path) -> Result<Self, crate::Error> {
+        let mut static_files = Self::empty();
+        let walker = FileWalker::new(path);
+        for (file, path) in walker {
+            let mut bytes = Vec::new();
+            file?.read_to_end(&mut bytes)?;
+            static_files.files.insert(
+                // This is a mouthful. Probably an easier way to simplify this?
+                path.strip_prefix(&path)?.to_str().ok_or("".to_string())?.to_string(),
+                bytes,
+            );
+        }
+
+        Ok(static_files)
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            files: Default::default(),
+            templates: Default::default(),
+        }
+    }
+}
+
+impl Default for StaticFiles {
+    fn default() -> Self {
+        Self::load_static_dir(Path::new("static")).unwrap_or(Self::empty())
+    }
 }
 
 // TODO: Pre-load the templates /statics
