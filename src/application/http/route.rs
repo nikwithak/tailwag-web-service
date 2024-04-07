@@ -645,9 +645,8 @@ mod into_route_handler {
     // abstraction is intended ot make coding with this library more ergonomic over closures
     // and simple function types. This explanation is only here for those curious enough to look under the hood.
 
-    pub struct RouteArgsNoContext;
-
-    impl<F, I, O, Fut> IntoRouteHandler<F, RouteArgsNoContext, (F, I, (O, Fut))> for F
+    pub struct RouteArgsNoContextAsync;
+    impl<F, I, O, Fut> IntoRouteHandler<F, RouteArgsNoContextAsync, (F, I, (O, Fut))> for F
     where
         F: Fn(I) -> Fut + Send + Copy + 'static + Sync,
         I: FromRequest + Sized + 'static,
@@ -663,9 +662,24 @@ mod into_route_handler {
         }
     }
 
-    pub struct RouteArgsRequestContext;
+    pub struct RouteArgsNoContextSync;
+    impl<F, I, O> IntoRouteHandler<F, RouteArgsNoContextSync, (F, I, O)> for F
+    where
+        F: Send + Sync + Copy + 'static + Fn(I) -> O,
+        I: FromRequest + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, _ctx| {
+                    Box::pin(async move { self(I::from(req)).into_response() })
+                }),
+            }
+        }
+    }
 
-    impl<F, I, C, O, Fut> IntoRouteHandler<F, RouteArgsRequestContext, (C, I, (O, Fut))> for F
+    pub struct RouteArgsRequestContextAsync;
+    impl<F, I, C, O, Fut> IntoRouteHandler<F, RouteArgsRequestContextAsync, (C, I, (O, Fut))> for F
     where
         F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
         I: FromRequest + Sized + 'static,
@@ -681,9 +695,25 @@ mod into_route_handler {
             }
         }
     }
+    pub struct RouteArgsRequestContextSync;
+    impl<F, I, C, O> IntoRouteHandler<F, RouteArgsRequestContextSync, (C, I, O)> for F
+    where
+        F: Send + Copy + 'static + Sync + Fn(I, C) -> O,
+        I: FromRequest + Sized + 'static,
+        C: FromContext + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, ctx| {
+                    Box::pin(async move { self(I::from(req), C::from(ctx)).into_response() })
+                }),
+            }
+        }
+    }
 
-    pub struct Nothing3;
-    impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3, (C, O, Fut)> for F
+    pub struct Nothing3Async;
+    impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F
     where
         F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
         C: FromContext + Sized + 'static,
@@ -694,6 +724,21 @@ mod into_route_handler {
             RouteHandler {
                 handler: Box::new(move |_req, ctx| {
                     Box::pin(async move { self(C::from(ctx)).await.into_response() })
+                }),
+            }
+        }
+    }
+    pub struct Nothing3Sync;
+    impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Sync, (C, O, Fut)> for F
+    where
+        F: Fn(C) -> O + Send + Copy + 'static + Sync,
+        C: FromContext + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |_req, ctx| {
+                    Box::pin(async move { self(C::from(ctx)).into_response() })
                 }),
             }
         }
