@@ -57,6 +57,9 @@ async fn main() {
         // .with_before(gateway::AuthorizationGateway)
         .post_public("login", gateway::login)
         .post_public("register", gateway::register)
+        .get_public("/test/hello/goodbye/", || "Goodbye".to_string())
+        .get_public("/test/hello/", || "Hello".to_string())
+        .post_public("/test/hello/", || "Hello".to_string())
         .with_resource::<Event>()
         .build_service()
         .run()
@@ -64,6 +67,7 @@ async fn main() {
         .unwrap();
 }
 
+// TODO: Remove these, just playing around with this.
 fn css() -> Response {
     load_static("globals.css")
 }

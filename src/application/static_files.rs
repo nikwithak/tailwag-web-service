@@ -7,7 +7,6 @@ use super::http::route::Response;
 #[derive(Clone)]
 struct StaticFiles {
     files: HashMap<String, Vec<u8>>,
-    templates: HashMap<String, Vec<u8>>,
 }
 
 impl StaticFiles {
@@ -30,7 +29,6 @@ impl StaticFiles {
     pub fn empty() -> Self {
         Self {
             files: Default::default(),
-            templates: Default::default(),
         }
     }
 }

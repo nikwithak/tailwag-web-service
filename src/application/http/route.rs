@@ -1,4 +1,4 @@
-use reqwest::header::HeaderName;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -12,21 +12,35 @@ use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
     queries::Insertable,
 };
+use tailwag_utils::data_strutures::hashmap_utils::{GetOrDefault, GetOrInsert};
 
 use crate::application::http::{headers::Headers, multipart::parse_multipart_request};
 
 pub type RoutePath = String;
 
 // TODO: This is to replace "RoutePath"
-// enum RoutePathE {
-//     Static(String),
-//     Param(String),
-// }
-// impl From<&str> for RoutePathE {
-//     fn from(value: &str) -> Self {
-//         todo!()
-//     }
-// }
+enum RoutePathE {
+    Static(String), // A statically matched string, e.g. the `resource` in `/resource/{id}`
+    Param(String),  // A dynamically matched param in a string. The `id` in `/resource/{id}`
+}
+const STATIC_REGEX: &str = "^[a-zA-Z0-9_]+$";
+const PARAM_REGEX: &str = "^\\{[a-zA-Z0-9_]+\\}$";
+
+impl<T: Into<String>> From<T> for RoutePathE {
+    fn from(value: T) -> Self {
+        let static_regex = Regex::new(STATIC_REGEX).expect("Invalid regex matched");
+        let param_regex = Regex::new(PARAM_REGEX).expect("Invalid regex matched");
+        type E = RoutePathE;
+        let value: String = value.into();
+        if static_regex.is_match(&value) {
+            E::Static(value)
+        } else if param_regex.is_match(&value) {
+            E::Param(value)
+        } else {
+            panic!("Unexpected routepath found - panicking. This may happen if you are using dynamic input for building your routes, or if you are not adhering to the route naming standards.")
+        }
+    }
+}
 
 enum RoutePolicy {
     Public,
@@ -56,9 +70,10 @@ impl PoliciedRouteHandler {
 }
 
 #[allow(unused)]
+#[derive(Default)]
 pub struct Route {
     handlers: HashMap<HttpMethod, PoliciedRouteHandler>,
-    children: HashMap<RoutePath, Box<Route>>,
+    children: HashMap<RoutePath, Route>,
 }
 impl std::fmt::Debug for Route {
     fn fmt(
@@ -81,13 +96,9 @@ impl Route {
         let mut route = Some(dbg!(self));
 
         let segments = path.split('/');
-        for segment in segments {
-            // If empty segment, then we aren't routing anywhere - keep the current segment.
-            if !segment.is_empty() {
-                // TODO: Better way to split/parse the route string, instead of stripping and readding the /
-                route =
-                    route.and_then(|route| route.children.get(&segment.to_string()).map(|r| &**r));
-            }
+        for segment in segments.filter(|s| !s.is_empty()) {
+            // TODO: Better way to split/parse the route string, instead of stripping and readding the /
+            route = route.and_then(|route| route.children.get(&segment.to_string()).map(|r| r));
         }
 
         // if path == "" {
@@ -105,23 +116,13 @@ impl Route {
     }
 }
 
-impl Default for Route {
-    fn default() -> Self {
-        Self {
-            handlers: Default::default(),
-            children: Default::default(),
-        }
-    }
-}
 macro_rules! impl_method {
     ($method:ident:$variant:ident) => {
         pub fn $method<F, I, O>(
             mut self,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.handlers
-                .insert(HttpMethod::$variant, PoliciedRouteHandler::protected(handler.into()));
-            self
+            self.with_handler(HttpMethod::$variant, "", handler.into())
         }
     };
     ($method:ident:$variant:ident, public) => {
@@ -129,9 +130,7 @@ macro_rules! impl_method {
             mut self,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.handlers
-                .insert(HttpMethod::$variant, PoliciedRouteHandler::public(handler.into()));
-            self
+            self.with_handler(HttpMethod::$variant, "", handler.into())
         }
     };
 }
@@ -157,6 +156,24 @@ impl Route {
         }
     }
 
+    pub fn with_handler<F, I, O>(
+        mut self,
+        method: HttpMethod,
+        path: &str,
+        handler: impl IntoRouteHandler<F, I, O>,
+    ) -> Self {
+        let parts = path.split('/');
+        let mut route = &mut self;
+        for part in parts.filter(|p| !p.is_empty()) {
+            route = route.children.get_or_default_mut(&part.to_string());
+        }
+        if route.handlers.contains_key(&method) {
+            panic!("This route already has a handler for the {:?} method", &method);
+        }
+        route.handlers.insert(method, PoliciedRouteHandler::public(handler.into()));
+        self
+    }
+
     pub fn with_route(
         mut self,
         path: RoutePath,
@@ -166,12 +183,17 @@ impl Route {
         self
     }
 
+    /// Nest another Route inside this one.
+    /// ```
     pub fn route(
         &mut self,
         path: impl Into<RoutePath>,
         route: Route,
     ) {
-        self.children.insert(path.into(), Box::new(route));
+        // 1. Parse path (as str) into the parts
+        // 2. Go down the request tree to find the Route node where this route would be handled, creating new Route nodes when necessary.
+        // 3. Add the Route handler
+        self.children.insert(path.into(), route);
     }
 }
 

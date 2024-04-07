@@ -66,6 +66,9 @@ futures = "0.3.30"
 templater = { version = "0.1.0", path = "../templater" }
 pulldown-cmark = "0.10.2"
 
+[build-dependencies]
+templater = { version = "0.1.0", path = "../templater" }
+
 [features]
 default = ["development"]
 axum = []

@@ -27,7 +27,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{IntoResponse, IntoRouteHandler, Request, Response};
+use super::http::route::{HttpMethod, IntoRouteHandler, Request, Response};
 use super::middleware::cors::CorsMiddleware;
 use super::middleware::{Middleware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
@@ -120,29 +120,30 @@ impl Default for WebServiceBuilder {
 }
 
 macro_rules! build_route_method {
-    ($method:ident) => {
+    ($method:ident:$variant:ident) => {
         pub fn $method<F, I, O>(
             mut self,
-            path: impl Into<RoutePath>,
+            path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
             // TODO: Refactor the path definitions here
             // TODO: Don't overwrite route if GET/POST are called separatey
-            self.root_route.route(path.into(), Route::new().$method(handler));
+            self.root_route =
+                self.root_route.with_handler(HttpMethod::$variant, path.into(), handler);
             self
         }
     };
 }
 
 impl WebServiceBuilder {
-    build_route_method!(get);
-    build_route_method!(post);
-    build_route_method!(delete);
-    build_route_method!(patch);
-    build_route_method!(get_public);
-    build_route_method!(post_public);
-    build_route_method!(delete_public);
-    build_route_method!(patch_public);
+    build_route_method!(get:Get);
+    build_route_method!(post:Post);
+    build_route_method!(delete:Delete);
+    build_route_method!(patch:Patch);
+    build_route_method!(get_public:Get);
+    build_route_method!(post_public:Post);
+    build_route_method!(delete_public:Delete);
+    build_route_method!(patch_public:Patch);
 }
 
 type MiddlewareFunction = dyn Send
@@ -365,16 +366,16 @@ impl WebService {
         // THis is very much ina  "debugging" state - need to clean up once it's working.
         log::info!("Connection received from {}", stream.peer_addr()?);
         // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
-        let mut request = crate::application::http::route::Request::try_from(&stream)?;
+        let request = crate::application::http::route::Request::try_from(&stream)?;
 
         let path = &request.path;
         println!("FULL PATH: {}", &path);
         let request_handler = self.routes.find_handler(path, &request.method);
 
         // PREPROCESSING
-        let mut before_ware = self.middleware_before.iter();
+        let before_ware = self.middleware_before.iter();
         let (mut req, mut ctx) = (request, context);
-        while let Some(middleware) = before_ware.next() {
+        for middleware in before_ware {
             match (middleware.handle_request)(req, ctx).await {
                 MiddlewareResult::Continue(new_req, new_ctx) => {
                     req = new_req;
