@@ -363,14 +363,10 @@ impl WebService {
         mut stream: std::net::TcpStream,
         context: Context,
     ) -> Result<RequestMetrics, crate::Error> {
-        // THis is very much ina  "debugging" state - need to clean up once it's working.
+        // THis is very much in a "debugging" state - need to clean up once it's working.
         log::info!("Connection received from {}", stream.peer_addr()?);
         // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
         let request = crate::application::http::route::Request::try_from(&stream)?;
-
-        let path = &request.path;
-        println!("FULL PATH: {}", &path);
-        let request_handler = self.routes.find_handler(path, &request.method);
 
         // PREPROCESSING
         let before_ware = self.middleware_before.iter();
@@ -388,22 +384,23 @@ impl WebService {
             }
         }
 
-        let route_handler = Box::new(|req, ctx| async move {
-            match request_handler {
-                Some(handler) => handler.call(req, ctx).await,
-                None => crate::application::http::route::Response {
-                    status: crate::application::http::route::HttpStatus::NotFound,
-                    headers: Headers::default(), // TODO: Default response headers
-                    http_version: crate::application::http::route::HttpVersion::V1_1,
-                    body: Vec::with_capacity(0),
-                },
-            }
-        });
+        // let route_handler = Box::new(|req, ctx| async move {
+        //     match request_handler {
+        //         Some(handler) => handler.call(req, ctx).await,
+        //         None => crate::application::http::route::Response {
+        //             status: crate::application::http::route::HttpStatus::NotFound,
+        //             headers: Headers::default(), // TODO: Default response headers
+        //             http_version: crate::application::http::route::HttpVersion::V1_1,
+        //             body: Vec::with_capacity(0),
+        //         },
+        //     }
+        // });
 
-        // POSTPROCESSIING
-        // TODO
+        // // POSTPROCESSIING
+        // // TODO
 
-        let response = route_handler(req, ctx).await;
+        // let response = route_handler(req, ctx).await;
+        let response = self.routes.handle(req, ctx).await;
         stream.write_all(&dbg!(response).as_bytes())?;
 
         Ok(())

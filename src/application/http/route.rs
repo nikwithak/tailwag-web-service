@@ -54,6 +54,7 @@ struct PoliciedRouteHandler {
     _policy: RoutePolicy,
 }
 
+// I'll probably end up ditching this for something... better.
 impl PoliciedRouteHandler {
     pub fn public(handler: RouteHandler) -> Self {
         Self {
@@ -74,6 +75,7 @@ impl PoliciedRouteHandler {
 pub struct Route {
     handlers: HashMap<HttpMethod, PoliciedRouteHandler>,
     children: HashMap<RoutePath, Route>,
+    dynamic_child: Option<(String, Box<Route>)>, // String = the given name
 }
 impl std::fmt::Debug for Route {
     fn fmt(
@@ -88,31 +90,41 @@ impl std::fmt::Debug for Route {
 }
 
 impl Route {
-    pub fn find_handler(
+    pub async fn handle(
         &self,
-        path: &RoutePath,
-        method: &HttpMethod,
-    ) -> Option<&RouteHandler> {
-        let mut route = Some(dbg!(self));
-
-        let segments = path.split('/');
-        for segment in segments.filter(|s| !s.is_empty()) {
-            // TODO: Better way to split/parse the route string, instead of stripping and readding the /
-            route = route.and_then(|route| route.children.get(&segment.to_string()).map(|r| r));
+        mut request: Request,
+        context: Context,
+    ) -> Response {
+        let path = &request.path;
+        // let mut route = Some(self);
+        // for segment in path.split('/').filter(|s| !s.is_empty()) {
+        //     route = route.and_then(|r| r.children.get(&segment.to_string()));
+        // }
+        let mut route = self;
+        for segment in path.split('/').filter(|s| !s.is_empty()) {
+            match route.children.get(&segment.to_string()) {
+                Some(new_route) => route = new_route,
+                None => {
+                    if let Some((name, new_route)) = &route.dynamic_child {
+                        println!("{}: route found", name);
+                        request.path_params.push(segment.to_owned());
+                        route = new_route
+                    } else {
+                        return Default::default();
+                    }
+                },
+            }
         }
 
-        // if path == "" {
-        //     return self.handlers.get(&method);
-        // }
-        // let binding = REGEX;
-        // let regex = binding.get_or_init(|| {
-        //     Regex::new(r"^(/[a-zA-Z0-9_-]*)+$").expect("Failed to compile route-parsing regex.")
-        // });
-        // let path_segments = regex.captures(&path)?;
-        // for segment in path_segments.iter() {}
-        // let mut route = self;
-
-        route.and_then(|r| r.handlers.get(method).map(|handler| &***handler)) // &*** = gets to the inner RouteHandler carrying the function
+        if let Some(future) = route
+            .handlers
+            .get(&request.method)
+            .map(|handler| handler.call(request, context))
+        {
+            future.await
+        } else {
+            Response::default()
+        }
     }
 }
 
@@ -149,11 +161,7 @@ impl Route {
 impl Route {
     // TODO: Impl the RoutePath / ValidatedString trait
     pub fn new() -> Self {
-        // TODO: Verify route allowed syntax
-        Self {
-            handlers: Default::default(),
-            children: Default::default(),
-        }
+        Default::default()
     }
 
     pub fn with_handler<F, I, O>(
@@ -165,12 +173,38 @@ impl Route {
         let parts = path.split('/');
         let mut route = &mut self;
         for part in parts.filter(|p| !p.is_empty()) {
-            route = route.children.get_or_default_mut(&part.to_string());
+            if Regex::new("^\\{[a-zA-Z0-9_-]*\\}$")
+                .expect("Something wrong with regex")
+                .is_match(part)
+            {
+                // For now, only one dyanmic route is allowed per route.
+                // Reduces ambiguity (and lets me get away with this silly hack)
+                if route.dynamic_child.is_none() {
+                    route.dynamic_child =
+                        Some(("unnamed".to_string(), Box::new(Default::default())));
+                }
+                let (name, child_route) =
+                    route.dynamic_child.as_mut().expect("Missing route that was just added.");
+                route = &mut *child_route;
+            } else if Regex::new("^[a-zA-Z0-9_]+$").expect("Regex is invalid").is_match(part) {
+                route = route.children.get_or_default_mut(&part.to_string());
+            } else if part.matches("...").next().is_some() {
+                // TODO:
+                todo!("Handle this, meaning \"the rest of the input\"");
+            } else {
+                println!("part: {} doesn't match regex", &part);
+                panic!("Invalid route");
+            }
         }
-        if route.handlers.contains_key(&method) {
-            panic!("This route already has a handler for the {:?} method", &method);
+        // TODO: NEed to indicate that it's extracting something.
+        // Static vs Dynamic routes
+        if route
+            .handlers
+            .insert(method, PoliciedRouteHandler::public(handler.into()))
+            .is_some()
+        {
+            panic!("This route already has a handler");
         }
-        route.handlers.insert(method, PoliciedRouteHandler::public(handler.into()));
         self
     }
 
@@ -321,6 +355,7 @@ pub struct Request {
     // TODO: This could be a u8 in the future, sinc eit won't always be text.
     pub method: HttpMethod,
     pub path: String,
+    pub path_params: Vec<String>,
     pub http_version: HttpVersion,
     pub headers: Headers,
     pub body: HttpBody,
@@ -395,6 +430,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
         Ok(Request {
             method: method.try_into()?,
             path: path.to_string(), // TODO: Validate it
+            path_params: Default::default(),
             http_version: http_version.try_into()?,
             headers,
             body,

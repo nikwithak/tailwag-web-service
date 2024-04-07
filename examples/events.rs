@@ -5,7 +5,7 @@ use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use tailwag_web_service::{
     application::http::{
         response::HttpResponse,
-        route::{HttpBody, IntoResponse, Response},
+        route::{HttpBody, IntoResponse, Request, Response},
     },
     auth::gateway,
 };
@@ -55,10 +55,10 @@ pub struct EventGroup {
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Events Service")
         // .with_before(gateway::AuthorizationGateway)
-        .post_public("login", gateway::login)
-        .post_public("register", gateway::register)
-        .get_public("/event/{id}", |id: Option<String>| id.unwrap_or("No strings found".into()))
+        .post_public("/login", gateway::login)
+        .post_public("/register", gateway::register)
         .with_resource::<Event>()
+        .get_public("/event/{id}", |id: Request| format!("{:?}", id.path_params))
         .build_service()
         .run()
         .await
