@@ -1,6 +1,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
+    any::TypeId,
     collections::HashMap,
     fmt::Display,
     io::{BufRead, Read},
@@ -12,7 +13,10 @@ use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
     queries::Insertable,
 };
-use tailwag_utils::data_strutures::hashmap_utils::{GetOrDefault, GetOrInsert};
+use tailwag_utils::{
+    data_strutures::hashmap_utils::{GetOrDefault, GetOrInsert},
+    types::generic_type_map::{CloneableTypeInstanceMap, TypeInstanceMap},
+};
 
 use crate::application::http::{headers::Headers, multipart::parse_multipart_request};
 
@@ -85,7 +89,7 @@ impl Route {
     pub async fn handle(
         &self,
         mut request: Request,
-        context: Context,
+        context: RequestContext,
     ) -> Response {
         let path = &request.path;
         // let mut route = Some(self);
@@ -303,7 +307,7 @@ type RouteHandlerInner = Box<
         + 'static
         + Fn(
             Request,
-            Context,
+            ServerContext,
         ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
 >;
 pub struct RouteHandler {
@@ -313,9 +317,9 @@ impl RouteHandler {
     pub async fn call(
         &self,
         request: Request,
-        context: Context,
+        context: RequestContext,
     ) -> Response {
-        (self.handler)(request, context).await
+        (self.handler)(request, context.server_context).await
     }
 }
 
@@ -518,27 +522,68 @@ impl Response {
     }
 }
 
-#[derive(Clone)]
-pub struct Context {
+#[derive(Clone, Deref)]
+pub struct ServerContext {
     pub data_providers: DataSystem,
 }
 
-impl Context {
+impl ServerContext {
     pub fn from(data_providers: DataSystem) -> Self {
-        Context {
+        ServerContext {
             data_providers,
         }
     }
 }
 
-impl From<Context> for DataSystem {
-    fn from(ctx: Context) -> Self {
+#[derive(Deref)]
+pub struct RequestContext {
+    #[deref]
+    server_context: ServerContext,
+    request_data: TypeInstanceMap,
+}
+
+impl RequestContext {
+    pub fn from_server_context(server_context: ServerContext) -> Self {
+        Self {
+            server_context,
+            request_data: Default::default(),
+        }
+    }
+}
+
+impl RequestContext {
+    /// Gets the requested data type from the request context, if it exists.
+    /// Useful for maintaining data state between beforeware & afterware (e.g. wrapping with middleware)
+    pub fn get_request_data<T: 'static + Sync + Send>(&self) -> Option<&T> {
+        self.request_data.get::<T>()
+    }
+    pub fn get_request_data_mut<T: 'static + Sync + Send>(&mut self) -> Option<&mut T> {
+        self.request_data.get_mut::<T>()
+    }
+    pub fn insert_request_data<T: 'static + Sync + Send>(
+        &mut self,
+        t: T,
+    ) {
+        self.request_data.insert(t);
+    }
+}
+
+impl Into<ServerContext> for &RequestContext {
+    fn into(self) -> ServerContext {
+        self.server_context.clone()
+    }
+}
+
+impl From<ServerContext> for DataSystem {
+    fn from(ctx: ServerContext) -> Self {
         ctx.data_providers.clone()
     }
 }
 
-impl<T: Insertable + Clone + Send + Sync + 'static> From<Context> for PostgresDataProvider<T> {
-    fn from(ctx: Context) -> Self {
+impl<T: Insertable + Clone + Send + Sync + 'static> From<ServerContext>
+    for PostgresDataProvider<T>
+{
+    fn from(ctx: ServerContext) -> Self {
         ctx.data_providers
             .get::<T>()
             .clone()
@@ -624,7 +669,7 @@ mod into_route_handler {
 
     use std::future::Future;
 
-    use super::{Context, FromRequest, IntoResponse, RouteHandler};
+    use super::{FromRequest, IntoResponse, RouteHandler, ServerContext};
 
     impl IntoRouteHandler<(), (), ()> for RouteHandler {
         fn into(self) -> RouteHandler {
@@ -731,7 +776,7 @@ mod into_route_handler {
     where
         F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
         I: FromRequest + Sized + 'static,
-        C: From<Context> + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
         Fut: Future<Output = O> + 'static + Send,
     {
@@ -748,7 +793,7 @@ mod into_route_handler {
     where
         F: Send + Copy + 'static + Sync + Fn(I, C) -> O,
         I: FromRequest + Sized + 'static,
-        C: From<Context> + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
     {
         fn into(self) -> RouteHandler {
@@ -764,7 +809,7 @@ mod into_route_handler {
     impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F
     where
         F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
-        C: From<Context> + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
         Fut: Future<Output = O> + 'static + Send,
     {
@@ -780,7 +825,7 @@ mod into_route_handler {
     impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Sync, (C, O, Fut)> for F
     where
         F: Fn(C) -> O + Send + Copy + 'static + Sync,
-        C: From<Context> + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
     {
         fn into(self) -> RouteHandler {

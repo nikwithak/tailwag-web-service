@@ -15,7 +15,7 @@ use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
 use crate::application::{
-    http::route::{Context, Request, Response},
+    http::route::{Request, RequestContext, Response},
     middleware::{Middleware, MiddlewareResult},
 };
 
@@ -87,11 +87,6 @@ pub enum AccountType {
     Authenticated(Account),
 }
 
-#[derive(Default)]
-pub struct RequestContext {
-    _account: AccountType,
-}
-
 pub struct AuthorizationGateway;
 
 #[derive(Serialize, Deserialize)]
@@ -117,10 +112,10 @@ impl AuthorizationGateway {
     // TODO: Clean this up. Looks a bit too complex / a few different things going on
     pub async fn add_session_to_request(
         request: Request,
-        context: Context,
+        context: RequestContext,
         // sessions: PostgresDataProvider<Session>,
     ) -> MiddlewareResult {
-        let Some(sessions) = context.data_providers.get::<Session>() else {
+        let Some(sessions) = context.get::<Session>() else {
             return Response::internal_server_error().into();
         };
         // First, log request:

@@ -20,7 +20,7 @@ use tailwag_orm::{
     queries::{Deleteable, Updateable},
 };
 
-use crate::application::http::route::Context;
+use crate::application::http::route::{RequestContext, ServerContext};
 // use crate::application::threads::ThreadPool;
 use crate::{
     auth::gateway::{Account, Session},
@@ -157,8 +157,8 @@ type MiddlewareFunction = dyn Send
     + Sync
     + FnMut(
         Request,
-        Context,
-        Box<dyn Fn(Request, Context) -> Pin<Box<dyn Future<Output = Response>>>>,
+        ServerContext,
+        Box<dyn Fn(Request, ServerContext) -> Pin<Box<dyn Future<Output = Response>>>>,
     );
 
 impl WebServiceBuilder {
@@ -252,7 +252,7 @@ impl WebServiceBuilder {
         // TODO: Go the route I went with RouteHandler, to automagic some type conversion
         func: impl Fn(
                 Request,
-                Context,
+                RequestContext,
                 // Box<dyn FnOnce(Request, Context) -> Response>,
             ) -> Pin<Box<dyn Future<Output = MiddlewareResult>>>
             + Send
@@ -374,7 +374,7 @@ impl WebService {
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
 
-            svc.handle_request(stream, Context::from(data_providers.clone())).await?;
+            svc.handle_request(stream, ServerContext::from(data_providers.clone())).await?;
 
             println!("Waiting for connection....");
         }
@@ -384,12 +384,13 @@ impl WebService {
     pub async fn handle_request(
         self,
         mut stream: std::net::TcpStream,
-        context: Context,
+        server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
         log::info!("Connection received from {}", stream.peer_addr()?);
         // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
         // And other validity checks.
         let request = crate::application::http::route::Request::try_from(&stream)?;
+        let context = RequestContext::from_server_context(server_context);
 
         // PREPROCESSING
         let before_ware = self.middleware_before.iter();

@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-use crate::application::http::route::{Context, HttpMethod, Request, Response};
+use crate::application::http::route::{
+    HttpMethod, Request, RequestContext, Response, ServerContext,
+};
 
 use super::{Middleware, MiddlewareResult};
 
@@ -74,10 +76,12 @@ impl From<CorsMiddleware> for Middleware {
 /// ref: https://fetch.spec.whatwg.org/#cors-protocol
 fn handle_cors(
     req: Request,
-    ctx: Context,
+    mut ctx: RequestContext,
 ) -> MiddlewareResult {
     // TODO: Not the proper way to check, but "good enough" to unblock.
     // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
+    ctx.insert_request_data("Inside CORS".to_string());
+    println!("Stored message: {:?}", ctx.get_request_data::<String>());
     if matches!(req.method, HttpMethod::Options) {
         MiddlewareResult::Respond(
             Response::ok()

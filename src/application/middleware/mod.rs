@@ -11,10 +11,10 @@ pub mod cors;
 
 use std::pin::Pin;
 
-use super::http::route::{Context, IntoResponse, Request, Response};
+use super::http::route::{IntoResponse, Request, RequestContext, Response};
 
 pub enum MiddlewareResult {
-    Continue(Request, Context),
+    Continue(Request, RequestContext),
     Respond(Response),
 }
 
@@ -23,7 +23,7 @@ type MiddlewareHandler = Box<
         + Sync
         + Fn(
             Request,
-            Context,
+            RequestContext,
             // Box<dyn FnOnce(Request, Context) -> Response>,
         ) -> Pin<Box<dyn std::future::Future<Output = MiddlewareResult>>>,
 >;
@@ -46,9 +46,9 @@ impl<T: IntoResponse> From<Option<T>> for MiddlewareResult {
     }
 }
 
-impl From<(Request, Context)> for MiddlewareResult {
-    fn from(val: (Request, Context)) -> Self {
-        let (req, ctx): (Request, Context) = val;
+impl From<(Request, RequestContext)> for MiddlewareResult {
+    fn from(val: (Request, RequestContext)) -> Self {
+        let (req, ctx): (Request, RequestContext) = val;
         MiddlewareResult::Continue(req, ctx)
     }
 }

@@ -1,12 +1,8 @@
 use std::{collections::BTreeSet, io::Read, ops::Deref, path::Path};
 
-use serde::Serialize;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use tailwag_web_service::{
-    application::http::{
-        response::HttpResponse,
-        route::{HttpBody, IntoResponse, PathVariable, Request, Response},
-    },
+    application::http::route::{HttpBody, IntoResponse, PathVariable, Request, Response},
     auth::gateway,
 };
 use uuid::Uuid;
