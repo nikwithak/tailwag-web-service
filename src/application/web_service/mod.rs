@@ -2,7 +2,6 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
-use crate::application::http::route::RoutePath;
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,6 @@ use tailwag_orm::{
     queries::{Deleteable, Updateable},
 };
 
-use crate::application::http::headers::Headers;
 use crate::application::http::route::Context;
 // use crate::application::threads::ThreadPool;
 use crate::{
@@ -126,15 +124,18 @@ macro_rules! build_route_method {
             path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            // TODO: Refactor the path definitions here
-            // TODO: Don't overwrite route if GET/POST are called separatey
-            self.root_route =
-                self.root_route.with_handler(HttpMethod::$variant, path.into(), handler);
+            self.root_route.add_handler(HttpMethod::$variant, path.into(), handler);
             self
         }
     };
 }
 
+/// Builder methods for easy route building. These allow you to chain together .get("/path", || ()) calls,
+/// quickly building a service.
+///
+/// NOTE: The methods ending in `_public` are identical (for now) to the others.
+///       In a future iteration these will allow you to restrict all routes by default,
+///       and explicitly allow certain routes for public access.
 impl WebServiceBuilder {
     build_route_method!(get:Get);
     build_route_method!(post:Post);

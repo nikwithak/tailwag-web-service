@@ -3,6 +3,7 @@ pub mod multipart;
 pub mod request;
 pub mod response;
 pub mod route;
+pub mod into_route_handler;
 
 use serde::Serialize;
 

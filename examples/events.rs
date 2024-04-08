@@ -1,11 +1,11 @@
-use std::{collections::BTreeSet, io::Read, path::Path};
+use std::{collections::BTreeSet, io::Read, ops::Deref, path::Path};
 
 use serde::Serialize;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use tailwag_web_service::{
     application::http::{
         response::HttpResponse,
-        route::{HttpBody, IntoResponse, Request, Response},
+        route::{HttpBody, IntoResponse, PathVariable, Request, Response},
     },
     auth::gateway,
 };
@@ -58,7 +58,6 @@ async fn main() {
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
         .with_resource::<Event>()
-        .get_public("/event/{id}", |id: Request| format!("{:?}", id.path_params))
         .build_service()
         .run()
         .await

@@ -5,6 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
 [dependencies]
 
 # `tailwag` has the whole suite packaged together - not using it here though since this rolls up to tailwag.
@@ -74,3 +75,6 @@ default = ["development"]
 axum = []
 release = []
 development = []
+
+[dev-dependencies]
+hurl = "4.2.0"

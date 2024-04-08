@@ -18,34 +18,20 @@ use crate::application::http::{headers::Headers, multipart::parse_multipart_requ
 
 pub type RoutePath = String;
 
-// TODO: This is to replace "RoutePath"
-enum RoutePathE {
-    Static(String), // A statically matched string, e.g. the `resource` in `/resource/{id}`
-    Param(String),  // A dynamically matched param in a string. The `id` in `/resource/{id}`
-}
-const STATIC_REGEX: &str = "^[a-zA-Z0-9_]+$";
-const PARAM_REGEX: &str = "^\\{[a-zA-Z0-9_]+\\}$";
-
-impl<T: Into<String>> From<T> for RoutePathE {
-    fn from(value: T) -> Self {
-        let static_regex = Regex::new(STATIC_REGEX).expect("Invalid regex matched");
-        let param_regex = Regex::new(PARAM_REGEX).expect("Invalid regex matched");
-        type E = RoutePathE;
-        let value: String = value.into();
-        if static_regex.is_match(&value) {
-            E::Static(value)
-        } else if param_regex.is_match(&value) {
-            E::Param(value)
-        } else {
-            panic!("Unexpected routepath found - panicking. This may happen if you are using dynamic input for building your routes, or if you are not adhering to the route naming standards.")
-        }
-    }
-}
-
 enum RoutePolicy {
     Public,
     Protected,
 }
+
+pub struct PathVariable<T>(pub T);
+impl<T> Deref for PathVariable<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+pub type PathString = PathVariable<String>;
+pub type PathVar<T> = PathVariable<T>;
 
 #[derive(Deref)]
 struct PoliciedRouteHandler {
@@ -139,7 +125,7 @@ macro_rules! impl_method {
     };
     ($method:ident:$variant:ident, public) => {
         pub fn $method<F, I, O>(
-            mut self,
+            self,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
             self.with_handler(HttpMethod::$variant, "", handler.into())
@@ -170,15 +156,25 @@ impl Route {
         path: &str,
         handler: impl IntoRouteHandler<F, I, O>,
     ) -> Self {
+        self.add_handler(method, path, handler);
+        self
+    }
+    pub fn add_handler<F, I, O>(
+        &mut self,
+        method: HttpMethod,
+        path: &str,
+        handler: impl IntoRouteHandler<F, I, O>,
+    ) {
         let parts = path.split('/');
-        let mut route = &mut self;
+        let mut route = self;
         for part in parts.filter(|p| !p.is_empty()) {
-            if Regex::new("^\\{[a-zA-Z0-9_-]*\\}$")
+            if Regex::new("^\\{[a-zA-Z0-9_-]*\\}$") // /route/{this_part_gets_matched}/
                 .expect("Something wrong with regex")
                 .is_match(part)
             {
-                // For now, only one dyanmic route is allowed per route.
+                // For now, only one dynamic route is allowed per route.
                 // Reduces ambiguity (and lets me get away with this silly hack)
+                // In the future, I'll add some regex support (maybe?) or at least a basic extraction syntax
                 if route.dynamic_child.is_none() {
                     route.dynamic_child =
                         Some(("unnamed".to_string(), Box::new(Default::default())));
@@ -190,12 +186,13 @@ impl Route {
                 route = route.children.get_or_default_mut(&part.to_string());
             } else if part.matches("...").next().is_some() {
                 // TODO:
-                todo!("Handle this, meaning \"the rest of the input\"");
+                todo!("... = \"the rest of the input\"");
             } else {
                 println!("part: {} doesn't match regex", &part);
                 panic!("Invalid route");
             }
         }
+
         // TODO: NEed to indicate that it's extracting something.
         // Static vs Dynamic routes
         if route
@@ -205,7 +202,6 @@ impl Route {
         {
             panic!("This route already has a handler");
         }
-        self
     }
 
     pub fn with_route(
@@ -527,7 +523,7 @@ impl FromContext for DataSystem {
     }
 }
 
-impl<T: Insertable + Clone + Send + 'static> FromContext for PostgresDataProvider<T> {
+impl<T: Insertable + Clone + Send + Sync + 'static> FromContext for PostgresDataProvider<T> {
     fn from(ctx: Context) -> Self {
         ctx.data_providers
             .get::<T>()
@@ -583,6 +579,15 @@ impl FromRequest for Request {
         req
     }
 }
+impl<T> FromRequest for PathVariable<T>
+where
+    T: From<String>,
+{
+    fn from(req: Request) -> Self {
+        // TODO: Not robust
+        PathVariable(req.path_params.first().unwrap().to_owned().into())
+    }
+}
 
 pub trait FromContext
 where
@@ -595,7 +600,7 @@ pub struct RouteArgsNone;
 impl<F, O> IntoRouteHandler<F, RouteArgsNone, O> for F
 where
     F: Fn() -> O + Send + Copy + 'static + Sync,
-    O: IntoResponse + Sized + Send,
+    O: IntoResponse + Sized + Send + Sync,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {

@@ -101,11 +101,13 @@ struct JwtClaims {
 }
 
 // TODO: DRY this out for generic functions, following the Handler pattern.
-impl Into<Middleware> for AuthorizationGateway {
-    fn into(self) -> Middleware {
+impl From<AuthorizationGateway> for Middleware {
+    fn from(val: AuthorizationGateway) -> Self {
         Middleware {
             handle_request: Box::new(|req, res| {
-                Box::pin(async move { Self::add_session_to_request(req, res).await })
+                Box::pin(
+                    async move { AuthorizationGateway::add_session_to_request(req, res).await },
+                )
             }),
         }
     }
