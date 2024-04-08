@@ -1,10 +1,11 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display, pin::Pin};
 
-use crate::application::http::route::{
-    HttpMethod, Request, RequestContext, Response, ServerContext,
+use crate::application::http::{
+    headers::Headers,
+    route::{HttpMethod, Request, RequestContext, Response, ServerContext},
 };
 
-use super::{Middleware, MiddlewareResult};
+use super::{Beforeware, MiddlewareResult};
 
 #[derive(Default)]
 pub struct CorsMiddleware {
@@ -18,6 +19,9 @@ enum CorsPolicy {
     EchoOrigin,
     AllowOnly(Vec<String>),
 }
+
+#[derive(Debug)]
+pub struct CorsHeaders(pub HashMap<String, String>);
 
 mod headers {
     // Ref: https://fetch.spec.whatwg.org/#http-requests 3.2.2 & 3.2.3
@@ -61,8 +65,9 @@ mod headers {
     }
 }
 pub use headers::*;
+use tailwag_macros::Deref;
 
-impl From<CorsMiddleware> for Middleware {
+impl From<CorsMiddleware> for Beforeware {
     fn from(val: CorsMiddleware) -> Self {
         Self {
             handle_request: Box::new(|req, ctx| Box::pin(async move { handle_cors(req, ctx) })),
@@ -80,8 +85,6 @@ fn handle_cors(
 ) -> MiddlewareResult {
     // TODO: Not the proper way to check, but "good enough" to unblock.
     // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
-    ctx.insert_request_data("Inside CORS".to_string());
-    println!("Stored message: {:?}", ctx.get_request_data::<String>());
     if matches!(req.method, HttpMethod::Options) {
         MiddlewareResult::Respond(
             Response::ok()
@@ -94,9 +97,43 @@ fn handle_cors(
                 .with_header(CorsHeader::AccessControlAllowCredentials, "true")
                 .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept"),
         )
+    } else if req.headers.contains_key("origin") {
+        // Stash them for later - afterware will have to pull this
+        ctx.insert_request_data(CorsHeaders(
+            vec![
+                (
+                    CorsHeader::AccessControlAllowOrigin.to_string(),
+                    req.headers
+                        .get(&CorsHeader::Origin.to_string())
+                        .map_or("null".to_string(), |s| s.to_owned()),
+                ),
+                (CorsHeader::AccessControlAllowCredentials.to_string(), "true".to_string()),
+                (
+                    CorsHeader::AccessControlAllowHeaders.to_string(),
+                    "origin, content-type, accept".to_string(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+        MiddlewareResult::Continue(req, ctx)
     } else {
         MiddlewareResult::Continue(req, ctx)
     }
 }
 
-fn handle_preflight() {}
+pub fn inject_cors_headers(
+    mut res: Response,
+    ctx: RequestContext,
+) -> Pin<Box<dyn std::future::Future<Output = (Response, RequestContext)>>> {
+    Box::pin(async move {
+        if let Some(cors_headers) =
+            ctx.get_request_data::<crate::application::middleware::cors::CorsHeaders>()
+        {
+            for (name, val) in &cors_headers.0 {
+                res = res.with_header(name.clone(), val.clone());
+            }
+        }
+        (res, ctx)
+    })
+}

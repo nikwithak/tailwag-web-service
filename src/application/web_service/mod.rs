@@ -28,8 +28,8 @@ use crate::{
 };
 
 use super::http::route::{HttpMethod, IntoRouteHandler, Request, Response};
-use super::middleware::cors::CorsMiddleware;
-use super::middleware::{Middleware, MiddlewareResult};
+use super::middleware::cors::{inject_cors_headers, CorsMiddleware};
+use super::middleware::{Afterware, Beforeware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -61,8 +61,8 @@ pub enum AdminActions {
 #[allow(private_bounds)]
 pub struct WebServiceInner {
     config: WebServiceConfig,
-    middleware_before: Vec<Middleware>,
-    middleware_after: Vec<Middleware>,
+    middleware_before: Vec<Beforeware>,
+    middleware_after: Vec<Afterware>,
     routes: Route,
     resources: UnconnectedDataSystem,
     _migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
@@ -89,8 +89,8 @@ pub struct WebServiceBuilder {
     root_route: Route,
     migrations: MigrationRunners,
     forms: HashMap<Identifier, Form>,
-    middleware_before: Vec<Middleware>,
-    middleware_after: Vec<Middleware>,
+    middleware_before: Vec<Beforeware>,
+    middleware_after: Vec<Afterware>,
     resources: DataSystemBuilder,
 }
 
@@ -120,6 +120,7 @@ impl Default for WebServiceBuilder {
         .with_resource::<Account>()
         .with_resource::<Session>()
         .with_before(CorsMiddleware::default())
+        .with_afterware(inject_cors_headers)
     }
 }
 
@@ -234,7 +235,7 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn with_before<F: Into<Middleware>>(
+    pub fn with_before<F: Into<Beforeware>>(
         mut self,
         // TODO: Go the route I went with RouteHandler, to automagic some type conversion
         middleware: F,
@@ -262,10 +263,32 @@ impl WebServiceBuilder {
         // TODO+ Send + SPin<Box<tatic
         // + + Send + Sync + 'static
         // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
-        let middleware = Middleware {
+        let middleware = Beforeware {
             handle_request: Box::new(func),
         };
         self.middleware_before.push(middleware);
+
+        self
+    }
+
+    pub fn with_afterware(
+        mut self,
+        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
+        func: impl Fn(
+                Response,
+                RequestContext,
+            ) -> Pin<Box<dyn Future<Output = (Response, RequestContext)>>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        // TODO+ Send + SPin<Box<tatic
+        // + + Send + Sync + 'static
+        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
+        let afterware = Afterware {
+            handle_request: Box::new(func),
+        };
+        self.middleware_after.push(afterware);
 
         self
     }
@@ -409,10 +432,13 @@ impl WebService {
         }
 
         // let response = route_handler(req, ctx).await;
-        let response = self.routes.handle(req, ctx).await;
+        let mut response = self.routes.handle(req, &ctx).await;
 
         // // POSTPROCESSIING
-        // // TODO
+        let afterware = self.middleware_after.iter();
+        for after_fn in afterware {
+            (response, ctx) = (after_fn.handle_request)(response, ctx).await;
+        }
 
         stream.write_all(&dbg!(response).as_bytes())?;
 

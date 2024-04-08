@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::application::{
     http::route::{Request, RequestContext, Response},
-    middleware::{Middleware, MiddlewareResult},
+    middleware::{Beforeware, MiddlewareResult},
 };
 
 const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
@@ -96,9 +96,9 @@ struct JwtClaims {
 }
 
 // TODO: DRY this out for generic functions, following the Handler pattern.
-impl From<AuthorizationGateway> for Middleware {
+impl From<AuthorizationGateway> for Beforeware {
     fn from(val: AuthorizationGateway) -> Self {
-        Middleware {
+        Beforeware {
             handle_request: Box::new(|req, res| {
                 Box::pin(
                     async move { AuthorizationGateway::add_session_to_request(req, res).await },

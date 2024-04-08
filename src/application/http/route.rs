@@ -7,6 +7,7 @@ use std::{
     io::{BufRead, Read},
     ops::Deref,
     pin::Pin,
+    sync::Mutex,
 };
 use tailwag_macros::Deref;
 use tailwag_orm::{
@@ -89,7 +90,7 @@ impl Route {
     pub async fn handle(
         &self,
         mut request: Request,
-        context: RequestContext,
+        context: &RequestContext,
     ) -> Response {
         let path = &request.path;
         // let mut route = Some(self);
@@ -115,7 +116,7 @@ impl Route {
         if let Some(future) = route
             .handlers
             .get(&request.method)
-            .map(|handler| handler.call(request, context))
+            .map(|handler| handler.call(request, &context))
         {
             future.await
         } else {
@@ -317,9 +318,9 @@ impl RouteHandler {
     pub async fn call(
         &self,
         request: Request,
-        context: RequestContext,
+        context: &RequestContext,
     ) -> Response {
-        (self.handler)(request, context.server_context).await
+        (self.handler)(request, context.into()).await
     }
 }
 
@@ -464,7 +465,6 @@ macro_rules! default_response {
                 headers: Headers::default(),
                 body: Vec::new(),
             }
-            .with_header("access-control-allow-origin", "http://localhost:3000")
         }
     };
 }
@@ -568,9 +568,9 @@ impl RequestContext {
     }
 }
 
-impl Into<ServerContext> for &RequestContext {
-    fn into(self) -> ServerContext {
-        self.server_context.clone()
+impl From<&RequestContext> for ServerContext {
+    fn from(val: &RequestContext) -> Self {
+        val.server_context.clone()
     }
 }
 
@@ -606,10 +606,7 @@ impl<T: Serialize> IntoResponse for T {
                 headers: Headers::from(vec![("Content-Type", "application/json")]), // TODO: Make this dynamic
                 http_version: crate::application::http::route::HttpVersion::V1_1,
                 body: body.into_bytes(),
-            }
-            // TODO: HAAAAAAACK need to fix middleware so I can actually wrap this properly
-            .with_header("access-control-allow-origin", "http://localhost:3000")
-            .with_header("access-control-allow-credentials", "true"),
+            },
             Err(_) => crate::application::http::route::Response {
                 status: crate::application::http::route::HttpStatus::InternalServerError,
                 headers: Headers::from(vec![]),
