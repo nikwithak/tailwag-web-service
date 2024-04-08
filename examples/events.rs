@@ -1,10 +1,5 @@
-use std::{collections::BTreeSet, io::Read, ops::Deref, path::Path};
-
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
-use tailwag_web_service::{
-    application::http::route::{HttpBody, IntoResponse, PathVariable, Request, Response},
-    auth::gateway,
-};
+use tailwag_web_service::{application::http::route::Response, auth::gateway};
 use uuid::Uuid;
 
 mod tailwag {
@@ -40,11 +35,6 @@ pub struct Event {
     #[no_filter]
     description: Option<String>,
     // attendees: Vec<String>,
-}
-
-pub struct EventGroup {
-    id: Uuid,
-    events: BTreeSet<Event>,
 }
 
 #[tokio::main]
