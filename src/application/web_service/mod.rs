@@ -116,9 +116,10 @@ impl Default for WebServiceBuilder {
             root_route: Route::default(),
             forms: HashMap::new(),
         }
-        // .with_middleware(|| println!("I'm middling the ware!")) // TODO
         .with_resource::<Account>()
         .with_resource::<Session>()
+        // TODO: Make these consistent, by adding an Into / From pattern for these functions
+        // so I don't have to wrap them in a Box<Pin<Future<_>>> every time
         .with_before(CorsMiddleware::default())
         .with_afterware(inject_cors_headers)
     }
@@ -248,7 +249,7 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn with_middleware_before(
+    pub fn with_beforeware(
         mut self,
         // TODO: Go the route I went with RouteHandler, to automagic some type conversion
         func: impl Fn(

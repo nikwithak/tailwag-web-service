@@ -79,7 +79,7 @@ impl From<CorsMiddleware> for Beforeware {
 /// It is not currently fully compliant.
 /// Goal is "common case" with some flexibility
 /// ref: https://fetch.spec.whatwg.org/#cors-protocol
-fn handle_cors(
+pub fn handle_cors(
     req: Request,
     mut ctx: RequestContext,
 ) -> MiddlewareResult {
