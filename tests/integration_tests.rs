@@ -30,11 +30,6 @@ async fn run_service() {
         .unwrap();
 }
 
-#[test]
-fn start_service() {
-    run_service();
-}
-
 macro_rules! test_hurl_file {
     ($filename:literal) => {
         let result = hurl::runner::run(
@@ -55,12 +50,10 @@ fn run_hurl_tests() {
         .unwrap();
 
     println!("Starting service... waiting 2 seconds for status");
-    sleep(Duration::from_secs(2)); // Wait for service to start up. TODO: Give a way to poll the service.
+    sleep(Duration::from_secs(1)); // Wait for service to start up. TODO: Give a way to poll the service.
     println!("Checking server status");
 
     test_hurl_file!("login_register_work.hurl");
-
-    todo!("All tests passed, but I haven't yet implemented a way to gracefully stop the webservice (so panicking is the only way");
 
     thread.join().unwrap();
 }

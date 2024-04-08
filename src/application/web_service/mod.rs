@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
@@ -7,6 +8,7 @@ use log;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use tailwag_forms::{Form, GetForm};
+use tailwag_macros::Deref;
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
@@ -52,6 +54,9 @@ pub struct WebServiceConfig {
 // ```rust
 // state: AppState<> and anything wrapped in an Arc<T: Clone> is FromAppState<>
 // ````
+pub enum AdminActions {
+    KillServer,
+}
 
 #[allow(private_bounds)]
 pub struct WebServiceInner {
@@ -61,6 +66,7 @@ pub struct WebServiceInner {
     routes: Route,
     resources: UnconnectedDataSystem,
     _migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
+    admin_rx: Receiver<AdminActions>,
 }
 
 #[derive(tailwag_macros::Deref, Clone)]
@@ -264,8 +270,9 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn build_service(self) -> WebService {
-        WebService {
+    pub fn build_service(self) -> WebServiceBuildResponse {
+        let (admin_tx, admin_rx) = channel();
+        let service = WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
                 // data_providers: self.data_providers,
@@ -275,10 +282,27 @@ impl WebServiceBuilder {
                 _migrations: Arc::new(Mutex::new(self.migrations)),
                 middleware_before: self.middleware_before,
                 middleware_after: self.middleware_after,
+                admin_rx,
                 // middleware: vec![middleware_handler],
             })
             .clone(),
+        };
+        WebServiceBuildResponse {
+            service,
+            sender: admin_tx,
         }
+    }
+}
+#[derive(Deref)]
+pub struct WebServiceBuildResponse {
+    #[deref]
+    pub service: WebService,
+    pub sender: Sender<AdminActions>,
+}
+
+impl WebServiceBuildResponse {
+    pub async fn run(self) -> Result<RunResult, crate::Error> {
+        self.service.run().await
     }
 }
 
@@ -313,7 +337,6 @@ impl WebService {
         WebServiceBuilder::new(name)
     }
 
-    /// Start the Application. By default, starts an HTTP server bound to `127.0.0.1::8081`.
     pub async fn run(self) -> Result<RunResult, crate::Error> {
         /////////////////////////////
         // Axum Web implementation //
@@ -342,17 +365,16 @@ impl WebService {
         let listener = TcpListener::bind(&bind_addr).unwrap();
         println!("Waiting for connection....");
         while let Ok((stream, _addr)) = listener.accept() {
+            if let Ok(AdminActions::KillServer) = self.admin_rx.try_recv() {
+                // If we've gotten a kill signal, then stop the server.
+                break;
+            }
+
             println!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
 
-            svc.handle_request(
-                stream,
-                Context {
-                    data_providers: data_providers.clone(),
-                },
-            )
-            .await?;
+            svc.handle_request(stream, Context::from(data_providers.clone())).await?;
 
             println!("Waiting for connection....");
         }
@@ -364,9 +386,9 @@ impl WebService {
         mut stream: std::net::TcpStream,
         context: Context,
     ) -> Result<RequestMetrics, crate::Error> {
-        // THis is very much in a "debugging" state - need to clean up once it's working.
         log::info!("Connection received from {}", stream.peer_addr()?);
         // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
+        // And other validity checks.
         let request = crate::application::http::route::Request::try_from(&stream)?;
 
         // PREPROCESSING
@@ -385,27 +407,14 @@ impl WebService {
             }
         }
 
-        // let route_handler = Box::new(|req, ctx| async move {
-        //     match request_handler {
-        //         Some(handler) => handler.call(req, ctx).await,
-        //         None => crate::application::http::route::Response {
-        //             status: crate::application::http::route::HttpStatus::NotFound,
-        //             headers: Headers::default(), // TODO: Default response headers
-        //             http_version: crate::application::http::route::HttpVersion::V1_1,
-        //             body: Vec::with_capacity(0),
-        //         },
-        //     }
-        // });
+        // let response = route_handler(req, ctx).await;
+        let response = self.routes.handle(req, ctx).await;
 
         // // POSTPROCESSIING
         // // TODO
 
-        // let response = route_handler(req, ctx).await;
-        let response = self.routes.handle(req, ctx).await;
         stream.write_all(&dbg!(response).as_bytes())?;
 
         Ok(())
     }
-
-    // fn handle_request(&)
 }

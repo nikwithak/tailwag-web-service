@@ -23,6 +23,8 @@ enum RoutePolicy {
     Protected,
 }
 
+/// An extractor used to specify that the inputs should come from a PathVariable.
+/// This wrapper is needed to prevent the extraction coming from the RequestBody
 pub struct PathVariable<T>(pub T);
 impl<T> Deref for PathVariable<T> {
     type Target = T;
@@ -30,7 +32,10 @@ impl<T> Deref for PathVariable<T> {
         &self.0
     }
 }
+
+/// Alias type for a path variable string extractor
 pub type PathString = PathVariable<String>;
+/// Alias type for path variable extractor shorthand
 pub type PathVar<T> = PathVariable<T>;
 
 #[derive(Deref)]
@@ -41,6 +46,7 @@ struct PoliciedRouteHandler {
 }
 
 // I'll probably end up ditching this for something... better.
+// I haven't quite wrapped my head around how I want to structure policies.
 impl PoliciedRouteHandler {
     pub fn public(handler: RouteHandler) -> Self {
         Self {
@@ -517,13 +523,21 @@ pub struct Context {
     pub data_providers: DataSystem,
 }
 
-impl FromContext for DataSystem {
+impl Context {
+    pub fn from(data_providers: DataSystem) -> Self {
+        Context {
+            data_providers,
+        }
+    }
+}
+
+impl From<Context> for DataSystem {
     fn from(ctx: Context) -> Self {
         ctx.data_providers.clone()
     }
 }
 
-impl<T: Insertable + Clone + Send + Sync + 'static> FromContext for PostgresDataProvider<T> {
+impl<T: Insertable + Clone + Send + Sync + 'static> From<Context> for PostgresDataProvider<T> {
     fn from(ctx: Context) -> Self {
         ctx.data_providers
             .get::<T>()
@@ -589,13 +603,6 @@ where
     }
 }
 
-pub trait FromContext
-where
-    Self: Sized,
-{
-    fn from(ctx: Context) -> Self;
-}
-
 pub struct RouteArgsNone;
 impl<F, O> IntoRouteHandler<F, RouteArgsNone, O> for F
 where
@@ -617,7 +624,7 @@ mod into_route_handler {
 
     use std::future::Future;
 
-    use super::{FromContext, FromRequest, IntoResponse, RouteHandler};
+    use super::{Context, FromRequest, IntoResponse, RouteHandler};
 
     impl IntoRouteHandler<(), (), ()> for RouteHandler {
         fn into(self) -> RouteHandler {
@@ -724,7 +731,7 @@ mod into_route_handler {
     where
         F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
         I: FromRequest + Sized + 'static,
-        C: FromContext + Sized + 'static,
+        C: From<Context> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
         Fut: Future<Output = O> + 'static + Send,
     {
@@ -741,7 +748,7 @@ mod into_route_handler {
     where
         F: Send + Copy + 'static + Sync + Fn(I, C) -> O,
         I: FromRequest + Sized + 'static,
-        C: FromContext + Sized + 'static,
+        C: From<Context> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
     {
         fn into(self) -> RouteHandler {
@@ -757,7 +764,7 @@ mod into_route_handler {
     impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F
     where
         F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
-        C: FromContext + Sized + 'static,
+        C: From<Context> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
         Fut: Future<Output = O> + 'static + Send,
     {
@@ -773,7 +780,7 @@ mod into_route_handler {
     impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Sync, (C, O, Fut)> for F
     where
         F: Fn(C) -> O + Send + Copy + 'static + Sync,
-        C: FromContext + Sized + 'static,
+        C: From<Context> + Sized + 'static,
         O: IntoResponse + Sized + Send + 'static,
     {
         fn into(self) -> RouteHandler {
