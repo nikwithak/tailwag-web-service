@@ -8,7 +8,7 @@ use log;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use tailwag_forms::{Form, GetForm};
-use tailwag_macros::Deref;
+use tailwag_macros::{time_exec, Deref};
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
@@ -28,7 +28,7 @@ use crate::{
 };
 
 use super::http::route::{HttpMethod, IntoRouteHandler, Request, Response};
-use super::middleware::cors::{inject_cors_headers, CorsMiddleware};
+use super::middleware::cors::{self, inject_cors_headers, CorsMiddleware};
 use super::middleware::{Afterware, Beforeware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
 
@@ -120,8 +120,8 @@ impl Default for WebServiceBuilder {
         .with_resource::<Session>()
         // TODO: Make these consistent, by adding an Into / From pattern for these functions
         // so I don't have to wrap them in a Box<Pin<Future<_>>> every time
-        .with_before(CorsMiddleware::default())
-        .with_afterware(inject_cors_headers)
+        .with_before(cors::CorsMiddleware::default())
+        .with_afterware(cors::inject_cors_headers)
     }
 }
 
@@ -132,7 +132,7 @@ macro_rules! build_route_method {
             path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.root_route.add_handler(HttpMethod::$variant, path.into(), handler);
+            self.root_route = self.root_route.$method(path, handler);
             self
         }
     };
@@ -154,14 +154,6 @@ impl WebServiceBuilder {
     build_route_method!(delete_public:Delete);
     build_route_method!(patch_public:Patch);
 }
-
-type MiddlewareFunction = dyn Send
-    + Sync
-    + FnMut(
-        Request,
-        ServerContext,
-        Box<dyn Fn(Request, ServerContext) -> Pin<Box<dyn Future<Output = Response>>>>,
-    );
 
 impl WebServiceBuilder {
     // Builder functions
@@ -398,7 +390,10 @@ impl WebService {
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
 
-            svc.handle_request(stream, ServerContext::from(data_providers.clone())).await?;
+            time_exec!(
+                "ENTIRE REQUEST",
+                svc.handle_request(stream, ServerContext::from(data_providers.clone())).await?
+            );
 
             println!("Waiting for connection....");
         }
@@ -413,8 +408,13 @@ impl WebService {
         log::info!("Connection received from {}", stream.peer_addr()?);
         // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
         // And other validity checks.
-        let request = crate::application::http::route::Request::try_from(&stream)?;
-        let context = RequestContext::from_server_context(server_context);
+
+        let request = time_exec!(
+            "Request Destructuring",
+            crate::application::http::route::Request::try_from(&stream)
+        )?;
+        let context =
+            time_exec!("Build Context", RequestContext::from_server_context(server_context));
 
         // PREPROCESSING
         let before_ware = self.middleware_before.iter();

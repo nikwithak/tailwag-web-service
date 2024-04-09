@@ -112,7 +112,7 @@ impl AuthorizationGateway {
     // TODO: Clean this up. Looks a bit too complex / a few different things going on
     pub async fn add_session_to_request(
         request: Request,
-        context: RequestContext,
+        mut context: RequestContext,
         // sessions: PostgresDataProvider<Session>,
     ) -> MiddlewareResult {
         let Some(sessions) = context.get::<Session>() else {
@@ -169,20 +169,17 @@ impl AuthorizationGateway {
             session_id,
             ..
         } = decoded_jwt.claims;
-        log::debug!("SESSION_ID: {}", &session_id);
 
         match sessions.get(|sess| sess.id.eq(session_id)).await {
             Ok(Some(session)) => {
                 log::debug!("Session found! {:?}", &session);
-                {
-                    // Here's where we add it to the request
-                    // todo!()
-                }
+                log::debug!("Adding session to RequestContext");
+                context.insert_request_data(session);
+
                 MiddlewareResult::Continue(request, context)
             },
             Ok(None) => MiddlewareResult::Respond(Response::unauthorized()),
             Err(e) => {
-                // NOTE:
                 log::error!("An error occurred while authorizing the account: {:?}", e);
                 MiddlewareResult::Respond(Response::unauthorized())
             },

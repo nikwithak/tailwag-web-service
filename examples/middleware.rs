@@ -8,9 +8,9 @@ use tailwag_web_service::application::{
 pub async fn main() {
     WebService::builder("Middleware Example Service")
         // .get("/", |image: Image| "Testing")
-        .with_middleware_before(|mut req, ctx| {
+        .with_beforeware(|mut req, ctx| {
             Box::pin(async move {
-                let HttpBody::Json(body) = &req.body else {
+                let HttpBody::Json(_body) = &req.body else {
                     return MiddlewareResult::Respond(Response::not_found());
                 };
                 println!("INSIDE MIDDLEWARE: Here's your request: {:?}", &req.body);

@@ -40,7 +40,7 @@ pub struct Event {
 #[tokio::main]
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Events Service")
-        // .with_before(gateway::AuthorizationGateway)
+        .with_before(gateway::AuthorizationGateway)
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
         .with_resource::<Event>()

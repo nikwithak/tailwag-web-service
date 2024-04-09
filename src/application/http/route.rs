@@ -19,7 +19,10 @@ use tailwag_utils::{
     types::generic_type_map::{CloneableTypeInstanceMap, TypeInstanceMap},
 };
 
-use crate::application::http::{headers::Headers, multipart::parse_multipart_request};
+use crate::{
+    application::http::{headers::Headers, multipart::parse_multipart_request},
+    auth::gateway::Session,
+};
 
 pub type RoutePath = String;
 
@@ -72,7 +75,7 @@ impl PoliciedRouteHandler {
 pub struct Route {
     handlers: HashMap<HttpMethod, PoliciedRouteHandler>,
     children: HashMap<RoutePath, Route>,
-    dynamic_child: Option<(String, Box<Route>)>, // String = the given name
+    dynamic_child: Option<(String, Box<Route>)>, // String = the given name. Only one supported for now, and it isn't actually extracted properly.
 }
 impl std::fmt::Debug for Route {
     fn fmt(
@@ -93,11 +96,8 @@ impl Route {
         context: &RequestContext,
     ) -> Response {
         let path = &request.path;
-        // let mut route = Some(self);
-        // for segment in path.split('/').filter(|s| !s.is_empty()) {
-        //     route = route.and_then(|r| r.children.get(&segment.to_string()));
-        // }
         let mut route = self;
+
         for segment in path.split('/').filter(|s| !s.is_empty()) {
             match route.children.get(&segment.to_string()) {
                 Some(new_route) => route = new_route,
@@ -113,33 +113,50 @@ impl Route {
             }
         }
 
-        if let Some(future) = route
-            .handlers
-            .get(&request.method)
-            .map(|handler| handler.call(request, &context))
-        {
-            future.await
+        if let Some(future) = route.handlers.get(&request.method) {
+            //TODO: Verify policy
+            if is_authorized(&future._policy, context) {
+                future.call(request, context).await
+            } else {
+                Response::default()
+            }
         } else {
             Response::default()
         }
     }
 }
 
+fn is_authorized(
+    policy: &RoutePolicy,
+    ctx: &RequestContext,
+) -> bool {
+    match policy {
+        RoutePolicy::Public => true, // Always allow public routes
+        RoutePolicy::Protected => ctx.get_request_data::<Session>().map_or(false, |session| {
+            // TODO: For now we just look to see if the session exists. Need to add better validation.
+            // THIS IS NOT WELL-TESTED
+            true
+        }),
+    }
+}
+
 macro_rules! impl_method {
     ($method:ident:$variant:ident) => {
         pub fn $method<F, I, O>(
-            mut self,
+            self,
+            path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.with_handler(HttpMethod::$variant, "", handler.into())
+            self.with_handler(HttpMethod::$variant, path, handler.into())
         }
     };
     ($method:ident:$variant:ident, public) => {
         pub fn $method<F, I, O>(
             self,
+            path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.with_handler(HttpMethod::$variant, "", handler.into())
+            self.with_handler(HttpMethod::$variant, path, handler.into())
         }
     };
 }
@@ -187,8 +204,7 @@ impl Route {
                 // Reduces ambiguity (and lets me get away with this silly hack)
                 // In the future, I'll add some regex support (maybe?) or at least a basic extraction syntax
                 if route.dynamic_child.is_none() {
-                    route.dynamic_child =
-                        Some(("unnamed".to_string(), Box::new(Default::default())));
+                    route.dynamic_child = Some(("unnamed".to_string(), Box::default()));
                 }
                 let (name, child_route) =
                     route.dynamic_child.as_mut().expect("Missing route that was just added.");
