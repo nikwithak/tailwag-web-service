@@ -286,6 +286,7 @@ impl TryFrom<&str> for HttpMethod {
 pub enum HttpStatus {
     Ok = 200,
     Accepted = 201,
+    SeeOther = 303,
     BadRequest = 400,
     Unauthorized = 401,
     Forbidden = 403,
@@ -305,6 +306,7 @@ impl Display for HttpStatus {
             match self {
                 HttpStatus::Ok => "OK",
                 HttpStatus::Accepted => "Accepted",
+                HttpStatus::SeeOther => "See Other",
                 HttpStatus::BadRequest => "Bad Request",
                 HttpStatus::Unauthorized => "Unauthorized",
                 HttpStatus::Forbidden => "Forbidden",
@@ -492,6 +494,17 @@ impl Response {
     default_response!(internal_server_error, InternalServerError);
     default_response!(unauthorized, Unauthorized);
     default_response!(ok, Ok);
+    pub fn redirect_see_other(redirect_url: &str) -> Self {
+        let mut headers = Headers::default();
+        headers.insert("Location".into(), redirect_url.to_string());
+
+        Self {
+            http_version: HttpVersion::V1_1,
+            status: HttpStatus::SeeOther,
+            headers,
+            body: Vec::new(),
+        }
+    }
 }
 
 impl Default for Response {

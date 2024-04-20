@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
+use tailwag_orm::data_definition::database_definition::DatabaseDefinition;
 use tailwag_orm::data_manager::rest_api::Id;
+use tailwag_orm::migration::Migration;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -76,9 +78,9 @@ pub struct WebService {
 
 type MigrationRunners = Vec<
     Box<
-        dyn FnOnce(DataSystem) -> Pin<Box<dyn Future<Output = Result<(), String>> + Sync + Send>>
-            + Send
-            + Sync,
+        dyn FnOnce(
+            sqlx::Pool<sqlx::Postgres>,
+        ) -> Pin<Box<dyn Future<Output = Result<(), tailwag_orm::Error>>>>,
     >,
 >;
 
@@ -155,6 +157,25 @@ impl WebServiceBuilder {
     build_route_method!(patch_public:Patch);
 }
 
+async fn run_migration<T: GetTableDefinition + std::fmt::Debug + Clone>(
+    pool: &sqlx::Pool<sqlx::Postgres>
+) -> Result<(), tailwag_orm::Error> {
+    let table_def = T::get_table_definition();
+    let mig = Migration::<T>::compare(
+        None, // TODO: Need to get the old migration
+        &DatabaseDefinition::new_unchecked("postgres").table(table_def.clone()).into(),
+    );
+
+    if let Some(mig) = mig {
+        mig.run(pool).await?;
+        log::info!("Running migration for {}", &table_def.table_name);
+        Ok(())
+    } else {
+        log::info!("Skipping migration for {} - table is up to date!", &table_def.table_name);
+        Ok(())
+    }
+}
+
 impl WebServiceBuilder {
     // Builder functions
     pub fn new(app_name: &str) -> Self {
@@ -206,13 +227,9 @@ impl WebServiceBuilder {
 
         // TODO: I've fucked up the mgirations :(
         // // self.
-        // let migration = Migration::<T>::compare(
-        //     None, // TODO: Need to get the old migration
-        //     &DatabaseDefinition::new_unchecked("postgres")
-        //         .table(T::get_table_definition())
-        //         .into(),
-        // );
-        // // self.migrations.push();
+
+        self.migrations
+            .push(Box::new(|pool| Box::pin(async move { run_migration::<T>(&pool).await })));
 
         /************************************************************************************/
         //  BUILD THE ROUTES
@@ -364,17 +381,19 @@ impl WebService {
             .connect(&self.config.database_conn_string)
             .await
             .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?");
-        let data_providers = &self.resources.connect(db_pool).await;
+        let data_providers = &self.resources.connect(db_pool.clone()).await;
 
         // // TODO: Run migrations
-        // let migrations: MigrationRunners;
-        // {
-        //     let mut mutex_guard = self.migrations.lock()?;
-        //     migrations = mutex_guard.drain(0..).collect();
-        // }
-        // for migration in migrations {
-        //     migration(data_providers.clone()).await?
-        // }
+        let migrations: MigrationRunners;
+        {
+            let mut mutex_guard = self._migrations.lock()?;
+            migrations = mutex_guard.drain(0..).collect();
+        }
+        for migration in migrations {
+            migration(db_pool.clone())
+                .await
+                .expect("Failed to run migrations - aborting. Are you sure Postgres is running?")
+        }
 
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
         log::info!("Starting service on {}", &bind_addr);

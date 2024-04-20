@@ -90,12 +90,13 @@ fn run_hurl_tests() {
     // Tell the server to shut up now
     let signal = kill_signal_cell.get().unwrap();
     signal.send(AdminActions::KillServer).unwrap();
-    println!("Sent kill signal");
+    println!("Sent kill signal to service");
 
-    // The kill signal doesn't fire until another request comes in.
-    // Not worth fixing rn, the kill signal was hacked together just for
-    // these seamless tasks anyway. Smooth killing of service will be needed
-    // later though - should plan to intercept SIGKILL signal
+    // The kill signal doesn't fire until another request comes in...
+    // definitely a bug but not worth fixing rn, the kill signal was hacked together
+    // for these tests anyway, and the replumbing would be a bit of a headache.
+    // Smooth killing of service may be needed later though - e.g. I plan to
+    // intercept SIGKILL signal so I can cleanly shut down when deploying updates.
     hurl::runner::run(
         r#"GET http://localhost:8081/"#,
         &hurl::runner::RunnerOptionsBuilder::new().build(),

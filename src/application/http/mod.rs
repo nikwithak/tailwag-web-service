@@ -1,13 +1,9 @@
 pub mod headers;
 pub mod into_route_handler;
 pub mod multipart;
-pub mod response;
 pub mod route;
 
 use serde::Serialize;
-
-use self::response::HttpResponse;
-// use tailwag_macros::Deref;
 
 #[allow(dead_code)]
 pub struct HttpHeader {
