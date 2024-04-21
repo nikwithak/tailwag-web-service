@@ -77,4 +77,5 @@ release = []
 development = []
 
 [dev-dependencies]
+async-stripe = { version = "0.34.1", features = ["runtime-tokio-hyper"] }
 hurl = "4.2.0"

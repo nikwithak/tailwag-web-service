@@ -21,6 +21,7 @@ use tailwag_orm::{
     data_manager::GetTableDefinition,
     queries::{Deleteable, Updateable},
 };
+use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 
 use crate::application::http::route::{RequestContext, ServerContext};
 // use crate::application::threads::ThreadPool;
@@ -67,7 +68,8 @@ pub struct WebServiceInner {
     middleware_after: Vec<Afterware>,
     routes: Route,
     resources: UnconnectedDataSystem,
-    _migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
+    server_data: Arc<TypeInstanceMap>,
+    migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
     admin_rx: Receiver<AdminActions>,
 }
 
@@ -94,12 +96,14 @@ pub struct WebServiceBuilder {
     middleware_before: Vec<Beforeware>,
     middleware_after: Vec<Afterware>,
     resources: DataSystemBuilder,
+    server_data: TypeInstanceMap,
 }
 
 #[cfg(feature = "development")]
 impl Default for WebServiceBuilder {
     fn default() -> Self {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+        // Load in the current `.env` file, if it exists. If it fails, who cares.
         dotenv::dotenv().ok();
         Self {
             config: WebServiceConfig {
@@ -117,11 +121,10 @@ impl Default for WebServiceBuilder {
             migrations: Vec::new(),
             root_route: Route::default(),
             forms: HashMap::new(),
+            server_data: Default::default(),
         }
         .with_resource::<Account>()
         .with_resource::<Session>()
-        // TODO: Make these consistent, by adding an Into / From pattern for these functions
-        // so I don't have to wrap them in a Box<Pin<Future<_>>> every time
         .with_before(cors::CorsMiddleware::default())
         .with_afterware(cors::inject_cors_headers)
     }
@@ -303,6 +306,14 @@ impl WebServiceBuilder {
         self
     }
 
+    pub fn with_server_data<T: Clone + Send + Sync + 'static>(
+        mut self,
+        data: T,
+    ) -> Self {
+        self.server_data.insert(data);
+        self
+    }
+
     pub fn build_service(self) -> WebServiceBuildResponse {
         let (admin_tx, admin_rx) = channel();
         let service = WebService {
@@ -312,10 +323,11 @@ impl WebServiceBuilder {
                 resources: self.resources.build(),
                 // router: self.router,
                 routes: self.root_route,
-                _migrations: Arc::new(Mutex::new(self.migrations)),
+                migrations: Arc::new(Mutex::new(self.migrations)),
                 middleware_before: self.middleware_before,
                 middleware_after: self.middleware_after,
                 admin_rx,
+                server_data: Arc::new(self.server_data),
                 // middleware: vec![middleware_handler],
             })
             .clone(),
@@ -381,12 +393,17 @@ impl WebService {
             .connect(&self.config.database_conn_string)
             .await
             .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?");
-        let data_providers = &self.resources.connect(db_pool.clone()).await;
+        let data_providers = self.resources.connect(db_pool.clone()).await;
+        let server_data = self.server_data.clone();
+        let context: ServerContext = ServerContext {
+            data_providers,
+            server_data,
+        };
 
         // // TODO: Run migrations
         let migrations: MigrationRunners;
         {
-            let mut mutex_guard = self._migrations.lock()?;
+            let mut mutex_guard = self.migrations.lock()?;
             migrations = mutex_guard.drain(0..).collect();
         }
         for migration in migrations {
@@ -409,10 +426,7 @@ impl WebService {
             // TODO: Rate-limiting / failtoban stuff
             let svc = self.clone();
 
-            time_exec!(
-                "ENTIRE REQUEST",
-                svc.handle_request(stream, ServerContext::from(data_providers.clone())).await?
-            );
+            time_exec!("ENTIRE REQUEST", svc.handle_request(stream, context.clone()).await?);
 
             println!("Waiting for connection....");
         }

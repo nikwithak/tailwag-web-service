@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, Read},
     ops::Deref,
     pin::Pin,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 use tailwag_macros::Deref;
 use tailwag_orm::{
@@ -23,6 +23,8 @@ use crate::{
     application::http::{headers::Headers, multipart::parse_multipart_request},
     auth::gateway::Session,
 };
+
+/// TODO: This file has gotten huge, and contains WAY more than just route logic. Factor a bunch of this out to smaller files in more logical groupings.
 
 pub type RoutePath = String;
 
@@ -553,13 +555,16 @@ impl Response {
 
 #[derive(Clone, Deref)]
 pub struct ServerContext {
+    #[deref]
     pub data_providers: DataSystem,
+    pub server_data: Arc<TypeInstanceMap>,
 }
 
 impl ServerContext {
     pub fn from(data_providers: DataSystem) -> Self {
         ServerContext {
             data_providers,
+            server_data: Default::default(),
         }
     }
 }
@@ -606,6 +611,23 @@ impl From<&RequestContext> for ServerContext {
 impl From<ServerContext> for DataSystem {
     fn from(ctx: ServerContext) -> Self {
         ctx.data_providers.clone()
+    }
+}
+
+pub struct ServerData<T: Clone + Send + Sync + 'static>(pub T);
+
+impl<T: Clone + Send + Sync + 'static> Deref for ServerData<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
+    fn from(value: ServerContext) -> Self {
+        // TODO: Use TryFrom instead
+        Self(value.server_data.get::<T>().unwrap().clone())
     }
 }
 
@@ -792,6 +814,49 @@ mod into_route_handler {
             RouteHandler {
                 handler: Box::new(move |req, _ctx| {
                     Box::pin(async move { self(I::from(req)).into_response() })
+                }),
+            }
+        }
+    }
+
+    pub struct RouteArgsOneRequestTwoContextAsync;
+    impl<F, I, C, C2, O, Fut>
+        IntoRouteHandler<F, RouteArgsOneRequestTwoContextAsync, ((C, C2), I, (O, Fut))> for F
+    where
+        F: Fn(I, C, C2) -> Fut + Send + Copy + 'static + Sync,
+        I: FromRequest + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
+        C2: From<ServerContext> + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+        Fut: Future<Output = O> + 'static + Send,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, ctx| {
+                    Box::pin(async move {
+                        self(I::from(req), C::from(ctx.clone()), C2::from(ctx))
+                            .await
+                            .into_response()
+                    })
+                }),
+            }
+        }
+    }
+    pub struct RouteArgsOneRequestTwoContextSync;
+    impl<F, I, C, C2, O> IntoRouteHandler<F, RouteArgsOneRequestTwoContextSync, ((C, C2), I, O)> for F
+    where
+        F: Send + Copy + 'static + Sync + Fn(I, C, C2) -> O,
+        I: FromRequest + Sized + 'static,
+        C: From<ServerContext> + Sized + 'static,
+        C2: From<ServerContext> + Sized + 'static,
+        O: IntoResponse + Sized + Send + 'static,
+    {
+        fn into(self) -> RouteHandler {
+            RouteHandler {
+                handler: Box::new(move |req, ctx| {
+                    Box::pin(async move {
+                        self(I::from(req), C::from(ctx.clone()), C2::from(ctx)).into_response()
+                    })
                 }),
             }
         }

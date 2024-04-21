@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use tailwag_macros::derive_magic;
-use tailwag_web_service::auth::gateway;
+use tailwag_web_service::{application::http::route::IntoResponse, auth::gateway};
 use uuid::Uuid;
 
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
@@ -27,6 +29,7 @@ derive_magic! {
         customer_email: String,
         status: String,
         stripe_order_id: String,
+        // line_items: Vec<String>,
         // name: String,
         // description: String,
     }
@@ -38,23 +41,27 @@ pub struct CartItem {
 }
 
 pub mod checkout {
+    use std::sync::Arc;
+
+    use stripe::*;
     use tailwag_orm::{
         data_definition::exp_data_system::DataSystem,
         data_manager::{traits::DataProvider, PostgresDataProvider},
     };
-    use tailwag_web_service::application::http::route::{IntoResponse, Response};
+    use tailwag_web_service::application::http::route::{IntoResponse, Response, ServerData};
 
     use crate::{CartItem, Product, ShopOrder};
 
     #[derive(serde::Serialize, serde::Deserialize, Debug)]
     pub struct CheckoutRequest {
         cart_items: Vec<CartItem>,
-        // customer_name:  String,
-        // customer_email: String,
+        customer_name: Option<String>,
+        customer_email: Option<String>,
     }
     pub async fn checkout(
         req: CheckoutRequest,
         providers: DataSystem,
+        stripe_client: ServerData<stripe::Client>,
     ) -> Response {
         let Some(products) = providers.get::<Product>() else {
             log::error!("No Products data provider was found");
@@ -64,8 +71,9 @@ pub mod checkout {
             log::error!("No Orders data provider was found");
             return Response::internal_server_error();
         };
-        let order =
+        let mut order =
             <PostgresDataProvider<ShopOrder> as DataProvider<ShopOrder>>::CreateRequest::default();
+        order.id = uuid::Uuid::new_v4();
         let order = orders.create(order).await.unwrap();
         // let Ok(order) = orders.create(order).await else {
         //     log::error!("Failed to create order");
@@ -73,11 +81,60 @@ pub mod checkout {
         //     return Response::internal_server_error();
         // };
 
-        // TODO: Call Stripe
-        {}
+        log::debug!("Got a request: {:?}", req);
+        let Some(url) = create_stripe_session(order, &stripe_client).await.url else {
+            return Response::internal_server_error();
+        };
 
-        println!("Got a request: {:?}", req);
-        Response::redirect_see_other("http://localhost:3000")
+        Response::redirect_see_other(&url)
+    }
+
+    async fn create_stripe_session(
+        order: ShopOrder,
+        stripe_client: &stripe::Client,
+    ) -> stripe::CheckoutSession {
+        let order_id = &order.id.to_string();
+        let success_url = format!("http://localhost:3000/order/{}", &order.id);
+        let mut params = stripe::CreateCheckoutSession {
+            success_url: Some(&success_url), // TODO: Configure this
+            // customer_email: Some(&order.customer_email),
+            shipping_address_collection: Some(
+                stripe::CreateCheckoutSessionShippingAddressCollection {
+                    allowed_countries: vec![
+                        CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Us,
+                    ],
+                },
+            ),
+            automatic_tax: Some(CreateCheckoutSessionAutomaticTax {
+                enabled: true,
+                liability: None,
+            }),
+            payment_intent_data: Some(CreateCheckoutSessionPaymentIntentData {
+                receipt_email: None,
+                ..Default::default()
+            }),
+            client_reference_id: Some(order_id),
+            mode: Some(stripe::CheckoutSessionMode::Payment),
+            line_items: Some(
+                vec!["Hi there"]
+                    .iter()
+                    .map(|li| CreateCheckoutSessionLineItems {
+                        adjustable_quantity: None,
+                        dynamic_tax_rates: None,
+                        price: Some(
+                            "price_1LLXcyF5uyr8Gny9YzCapbn9".to_owned(), // TODO: unhardcode
+                                                                         // li.price.stripe_price_id.clone().expect("Expected stripe_price_id"),
+                        ),
+                        price_data: None,
+                        quantity: Some(1),
+                        tax_rates: None,
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        CheckoutSession::create(stripe_client, params).await.unwrap()
     }
 }
 
@@ -89,9 +146,12 @@ async fn main() {
         .post_public("/register", gateway::register)
         .with_resource::<Product>() // TODO- public GET  owith filtering)
         .with_resource::<ShopOrder>() // TODO - public POST, restricted GET (to specific customer, via email)
-        // .with_resource::<Customer>() // TODO - No public - (nly created from stripe stuff)
+        // .with_resource::<Customer>() // TODO - No public - (nly created from stripe stuff, for now)
         //     .service(webhooks::stripe::stripe_webhook)
-        .get_public("/checkout", checkout::checkout) // TODO
+        .post_public("/checkout", checkout::checkout) // TODO
+        .with_server_data(stripe::Client::new(
+            std::env::var("STRIPE_API_KEY").expect("STRIPE_API_KEY is missing from env."),
+        ))
         .build_service()
         .run()
         .await
