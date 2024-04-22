@@ -15,8 +15,7 @@ use tailwag_orm::{
     queries::Insertable,
 };
 use tailwag_utils::{
-    data_strutures::hashmap_utils::{GetOrDefault, GetOrInsert},
-    types::generic_type_map::{CloneableTypeInstanceMap, TypeInstanceMap},
+    data_strutures::hashmap_utils::GetOrDefault, types::generic_type_map::TypeInstanceMap,
 };
 
 use crate::{

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tailwag_macros::derive_magic;
-use tailwag_web_service::{application::http::route::IntoResponse, auth::gateway};
+use tailwag_web_service::auth::gateway;
 use uuid::Uuid;
 
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
@@ -18,35 +18,49 @@ derive_magic! {
         id: Uuid,
         name: String,
         description: String,
+        stripe_price_id: String,
     }
 }
 
-// TODO: Wrap all of these in a single "resources" macro, that splits off of "struct"
+// TODO (interface improvement): Wrap all of these in a single "resources" macro, that splits off of "struct"
 derive_magic! {
+    #[actions(stripe_event)]
+
     pub struct ShopOrder {
         id: Uuid,
         customer_name: String,
         customer_email: String,
         status: String,
         stripe_order_id: String,
-        // line_items: Vec<String>,
+        // line_items: Vec<String>, // TODO: Fix thiiiis
         // name: String,
         // description: String,
     }
 }
 
+pub async fn stripe_event(
+    id: String,
+    data_providers: tailwag_orm::data_definition::exp_data_system::DataSystem,
+) -> Option<Vec<String>> {
+    Some(vec!["HEllo".to_string()])
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct CartItem {
     id: Uuid,
+    quantity: usize,
+    // TODO:
+    // customizations: Vec<Customization>,
 }
 
 pub mod checkout {
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
-    use stripe::*;
+    use stripe::{generated::core::product, *};
     use tailwag_orm::{
         data_definition::exp_data_system::DataSystem,
         data_manager::{traits::DataProvider, PostgresDataProvider},
+        queries::filterable_types::FilterEq,
     };
     use tailwag_web_service::application::http::route::{IntoResponse, Response, ServerData};
 
@@ -71,9 +85,23 @@ pub mod checkout {
             log::error!("No Orders data provider was found");
             return Response::internal_server_error();
         };
-        let mut order =
-            <PostgresDataProvider<ShopOrder> as DataProvider<ShopOrder>>::CreateRequest::default();
-        order.id = uuid::Uuid::new_v4();
+
+        let products_fut = req.cart_items.iter().map(|i| {
+            products.get(
+                move |filter| filter.id.eq(i.id), // .eq(i.product_id.clone())
+            )
+        });
+        let mut products = Vec::new();
+        for product in products_fut {
+            products.push(product.await.unwrap().unwrap())
+        }
+
+        type OrderCreateRequest =
+            <PostgresDataProvider<ShopOrder> as DataProvider<ShopOrder>>::CreateRequest;
+        let order = OrderCreateRequest {
+            id: uuid::Uuid::new_v4(),
+            ..Default::default()
+        };
         let order = orders.create(order).await.unwrap();
         // let Ok(order) = orders.create(order).await else {
         //     log::error!("Failed to create order");
@@ -82,20 +110,25 @@ pub mod checkout {
         // };
 
         log::debug!("Got a request: {:?}", req);
-        let Some(url) = create_stripe_session(order, &stripe_client).await.url else {
+        let Some(url) = create_stripe_session(order, products, &stripe_client).await.url else {
             return Response::internal_server_error();
         };
 
-        Response::redirect_see_other(&url)
+        // Response::redirect_see_other(&url)
+        vec![("payment_url", url)]
+            .into_iter()
+            .collect::<HashMap<&str, String>>()
+            .into_response()
     }
 
     async fn create_stripe_session(
         order: ShopOrder,
+        products: Vec<Product>,
         stripe_client: &stripe::Client,
     ) -> stripe::CheckoutSession {
         let order_id = &order.id.to_string();
         let success_url = format!("http://localhost:3000/order/{}", &order.id);
-        let mut params = stripe::CreateCheckoutSession {
+        let params = stripe::CreateCheckoutSession {
             success_url: Some(&success_url), // TODO: Configure this
             // customer_email: Some(&order.customer_email),
             shipping_address_collection: Some(
@@ -116,17 +149,14 @@ pub mod checkout {
             client_reference_id: Some(order_id),
             mode: Some(stripe::CheckoutSessionMode::Payment),
             line_items: Some(
-                vec!["Hi there"]
+                products
                     .iter()
                     .map(|li| CreateCheckoutSessionLineItems {
                         adjustable_quantity: None,
                         dynamic_tax_rates: None,
-                        price: Some(
-                            "price_1LLXcyF5uyr8Gny9YzCapbn9".to_owned(), // TODO: unhardcode
-                                                                         // li.price.stripe_price_id.clone().expect("Expected stripe_price_id"),
-                        ),
+                        price: Some(li.stripe_price_id.clone()),
                         price_data: None,
-                        quantity: Some(1),
+                        quantity: Some(1), // TODO: Actually get the quantity.
                         tax_rates: None,
                     })
                     .collect(),
@@ -144,7 +174,7 @@ async fn main() {
         // .with_before(gateway::AuthorizationGateway)
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
-        .with_resource::<Product>() // TODO- public GET  owith filtering)
+        .with_resource::<Product>() // TODO- public GET with filtering)
         .with_resource::<ShopOrder>() // TODO - public POST, restricted GET (to specific customer, via email)
         // .with_resource::<Customer>() // TODO - No public - (nly created from stripe stuff, for now)
         //     .service(webhooks::stripe::stripe_webhook)

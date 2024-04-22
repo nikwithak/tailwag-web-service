@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
@@ -228,36 +229,32 @@ impl WebServiceBuilder {
         self.resources.add_resource::<T>();
         self.forms.insert(resource_name.clone(), T::get_form());
 
-        // TODO: I've fucked up the mgirations :(
-        // // self.
-
-        self.migrations
-            .push(Box::new(|pool| Box::pin(async move { run_migration::<T>(&pool).await })));
-
-        /************************************************************************************/
-        //  BUILD THE ROUTES
+        {
+            //  MIGRATIONS
+            self.migrations
+                .push(Box::new(|pool| Box::pin(async move { run_migration::<T>(&pool).await })));
+        }
 
         {
+            //  BUILD THE ROUTES
             let route = T::build_routes();
             self.root_route.route(format!("{}", &resource_name), route);
         }
 
-        //
-        /************************************************************************************/
+        {
+            //  EXPORT THE FORMS
+            let form = T::get_form();
+            form.save_json(&format!("out/forms/{resource_name}.json")).unwrap();
+        }
 
         self
     }
 
     pub fn with_before<F: Into<Beforeware>>(
         mut self,
-        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
         middleware: F,
     ) -> Self {
-        // TODO+ Send + SPin<Box<tatic
-        // + + Send + Sync + 'static
-        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
         self.middleware_before.push(middleware.into());
-
         self
     }
 
@@ -383,9 +380,6 @@ impl WebService {
     }
 
     pub async fn run(self) -> Result<RunResult, crate::Error> {
-        /////////////////////////////
-        // Axum Web implementation //
-        /////////////////////////////
         self.print_welcome_message();
 
         let db_pool = PgPoolOptions::new()
@@ -400,16 +394,16 @@ impl WebService {
             server_data,
         };
 
-        // // TODO: Run migrations
         let migrations: MigrationRunners;
         {
+            // Run migrations
             let mut mutex_guard = self.migrations.lock()?;
             migrations = mutex_guard.drain(0..).collect();
-        }
-        for migration in migrations {
-            migration(db_pool.clone())
-                .await
-                .expect("Failed to run migrations - aborting. Are you sure Postgres is running?")
+            for migration in migrations {
+                migration(db_pool.clone()).await.expect(
+                    "Failed to run migrations - aborting. Are you sure Postgres is running?",
+                )
+            }
         }
 
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
