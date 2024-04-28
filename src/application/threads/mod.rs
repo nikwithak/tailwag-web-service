@@ -19,6 +19,7 @@ enum TaskStatus {
 
 type TaskFn =
     dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> + Send + Sync + 'static;
+
 #[allow(unused)]
 struct Task {
     task_fn: Box<TaskFn>,

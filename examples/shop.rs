@@ -1,7 +1,17 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+use stripe::Event;
 use tailwag_macros::derive_magic;
-use tailwag_web_service::auth::gateway;
+use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
+use tailwag_web_service::{
+    application::http::route::{FromRequest, IntoResponse, Request, Response, ServerData},
+    auth::gateway,
+    tasks::{
+        runner::{TaskExecutor, TaskResult},
+        TaskScheduler,
+    },
+};
 use uuid::Uuid;
 
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
@@ -14,6 +24,7 @@ mod tailwag {
 }
 
 derive_magic! {
+    #[post(create_product)]
     pub struct Product {
         id: Uuid,
         name: String,
@@ -22,10 +33,36 @@ derive_magic! {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CreateProductRequest {
+    name: String,
+    description: Option<String>,
+}
+
+pub async fn create_product(
+    req: CreateProductRequest,
+    products: PostgresDataProvider<Product>,
+) -> Product {
+    let stripe_price_id = create_stripe_product();
+    type ProductCreateRequest =
+        <PostgresDataProvider<Product> as DataProvider<Product>>::CreateRequest;
+    products
+        .create(ProductCreateRequest {
+            id: Uuid::new_v4(),
+            name: req.name,
+            description: req.description.unwrap_or_default(),
+            stripe_price_id,
+        })
+        .await
+        .unwrap()
+}
+fn create_stripe_product() -> String {
+    todo!()
+}
+
 // TODO (interface improvement): Wrap all of these in a single "resources" macro, that splits off of "struct"
 derive_magic! {
     #[actions(stripe_event)]
-
     pub struct ShopOrder {
         id: Uuid,
         customer_name: String,
@@ -38,11 +75,49 @@ derive_magic! {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct ProcessStripeEvent {
+    event: Event,
+}
+
+pub type StripeSecret = String;
 pub async fn stripe_event(
-    id: String,
+    request: Request,
     data_providers: tailwag_orm::data_definition::exp_data_system::DataSystem,
-) -> Option<Vec<String>> {
-    Some(vec!["HEllo".to_string()])
+    // stripe_signature: Header<StripeSignature>,
+    // order_processing_queue: Data<UnboundedSender<ThreadCommand<stripe::WebhookEvent>>>,
+    webhook_secret: ServerData<StripeSecret>,
+    mut task_queuer: TaskScheduler,
+) -> impl IntoResponse {
+    /// Verify / Decode the stripe event
+    let Some(stripe_signature) = request.headers.get("stripe-signature").cloned() else {
+        return Response::not_found();
+    };
+    // let body: stripe::Event = <stripe::Event as FromRequest>::from(request); // TODO: INterface improvments. Use actual "From<Request>"
+    let tailwag_web_service::application::http::route::HttpBody::Json(body) = request.body else {
+        return Response::bad_request();
+    };
+    let event = match stripe::Webhook::construct_event(&body, &stripe_signature, &webhook_secret) {
+        Ok(event) => event,
+        Err(err) => {
+            log::error!("[STRIPE] Failed to unpack stripe event: {}", err.to_string());
+            return Response::bad_request();
+        },
+    };
+    let event_id = event.id.clone();
+    log::debug!("[STRIPE] Received event id: {event_id}");
+
+    /// Send the event to our event processor.
+    /// TODO: This can be one line if I just add '?' support to Response / IntoResponse
+    let Ok(ticket) = task_queuer.enqueue(ProcessStripeEvent {
+        event,
+    }) else {
+        log::error!("[TICKET CREATE FAILED] Failed to send task to handler.");
+        return Response::internal_server_error();
+    };
+    log::info!("Created ticket: {}", &ticket.id());
+
+    Response::ok()
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -168,8 +243,23 @@ pub mod checkout {
     }
 }
 
+pub fn handle_stripe_event(event: ProcessStripeEvent) -> String {
+    log::info!("Recevied event: {:?}", event);
+    format!("FOUND: {:?}", event)
+}
+
 #[tokio::main]
 async fn main() {
+    // Example: I want to set up a worker process for the completed stripe events:
+    let mut task_executor = TaskExecutor::default();
+    task_executor.add_handler(handle_stripe_event);
+    let scheduler = task_executor.get_scheduler();
+    let join_handle = task_executor.run_in_new_thread();
+
+    // The request type we want to add is a
+
+    //
+
     tailwag_web_service::application::WebService::builder("My Events Service")
         // .with_before(gateway::AuthorizationGateway)
         .post_public("/login", gateway::login)
@@ -182,8 +272,16 @@ async fn main() {
         .with_server_data(stripe::Client::new(
             std::env::var("STRIPE_API_KEY").expect("STRIPE_API_KEY is missing from env."),
         ))
+        .with_server_data::<StripeSecret>(
+            // Hardcoded for test -
+            // URGENT TODO: Extract this into a ocnfig
+            "whsec_c30a4b7e8df448adfc8009ac03c967a8c0ce6d64b2fd855e61d7f24b37509afd".to_string(),
+        )
+        .with_server_data(scheduler)
         .build_service()
         .run()
         .await
         .unwrap();
+
+    join_handle.join();
 }

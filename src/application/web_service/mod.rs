@@ -1,9 +1,9 @@
 use std::io::Write;
-use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
+use crate::application::http::into_route_handler::IntoRouteHandler;
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{HttpMethod, IntoRouteHandler, Request, Response};
+use super::http::route::{HttpMethod, Request, Response};
 use super::middleware::cors::{self, inject_cors_headers, CorsMiddleware};
 use super::middleware::{Afterware, Beforeware, MiddlewareResult};
 use super::{http::route::Route, stats::RunResult};
