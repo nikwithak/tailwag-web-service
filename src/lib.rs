@@ -15,3 +15,9 @@ impl<T: ToString> From<T> for Error {
         Error::BadRequest(value.to_string())
     }
 }
+
+// impl From<tailwag_orm::Error> for Error {
+//     fn from(value: tailwag_orm::Error) -> Self {
+//         todo!()
+//     }
+// }

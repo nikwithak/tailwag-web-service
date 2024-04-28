@@ -71,10 +71,11 @@ pulldown-cmark = "0.10.2"
 templater = { version = "0.1.0", path = "../templater" }
 
 [features]
-default = ["development"]
+default = ["development", "tasks"]
 axum = []
 release = []
 development = []
+tasks = []
 
 [dev-dependencies]
 async-stripe = { version = "0.34.1", features = ["runtime-tokio-hyper"] }

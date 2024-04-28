@@ -76,7 +76,7 @@ derive_magic! {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct ProcessStripeEvent {
+pub struct ProcessStripeEvent {
     event: Event,
 }
 
@@ -129,17 +129,15 @@ pub struct CartItem {
 }
 
 pub mod checkout {
-    use std::{collections::HashMap, sync::Arc};
+    use std::collections::HashMap;
 
-    use stripe::{generated::core::product, *};
+    use crate::{CartItem, Product, ShopOrder};
     use tailwag_orm::{
         data_definition::exp_data_system::DataSystem,
         data_manager::{traits::DataProvider, PostgresDataProvider},
         queries::filterable_types::FilterEq,
     };
     use tailwag_web_service::application::http::route::{IntoResponse, Response, ServerData};
-
-    use crate::{CartItem, Product, ShopOrder};
 
     #[derive(serde::Serialize, serde::Deserialize, Debug)]
     pub struct CheckoutRequest {
@@ -209,15 +207,15 @@ pub mod checkout {
             shipping_address_collection: Some(
                 stripe::CreateCheckoutSessionShippingAddressCollection {
                     allowed_countries: vec![
-                        CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Us,
+                        stripe::CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Us,
                     ],
                 },
             ),
-            automatic_tax: Some(CreateCheckoutSessionAutomaticTax {
+            automatic_tax: Some(stripe::CreateCheckoutSessionAutomaticTax {
                 enabled: true,
                 liability: None,
             }),
-            payment_intent_data: Some(CreateCheckoutSessionPaymentIntentData {
+            payment_intent_data: Some(stripe::CreateCheckoutSessionPaymentIntentData {
                 receipt_email: None,
                 ..Default::default()
             }),
@@ -226,7 +224,7 @@ pub mod checkout {
             line_items: Some(
                 products
                     .iter()
-                    .map(|li| CreateCheckoutSessionLineItems {
+                    .map(|li| stripe::CreateCheckoutSessionLineItems {
                         adjustable_quantity: None,
                         dynamic_tax_rates: None,
                         price: Some(li.stripe_price_id.clone()),
@@ -239,11 +237,14 @@ pub mod checkout {
             ..Default::default()
         };
 
-        CheckoutSession::create(stripe_client, params).await.unwrap()
+        stripe::CheckoutSession::create(stripe_client, params).await.unwrap()
     }
 }
 
-pub fn handle_stripe_event(event: ProcessStripeEvent) -> String {
+pub fn handle_stripe_event(
+    event: ProcessStripeEvent,
+    // orders: PostgresDataProvider<ShopOrder>,
+) -> String {
     log::info!("Recevied event: {:?}", event);
     format!("FOUND: {:?}", event)
 }
@@ -253,12 +254,8 @@ async fn main() {
     // Example: I want to set up a worker process for the completed stripe events:
     let mut task_executor = TaskExecutor::default();
     task_executor.add_handler(handle_stripe_event);
-    let scheduler = task_executor.get_scheduler();
-    let join_handle = task_executor.run_in_new_thread();
-
-    // The request type we want to add is a
-
-    //
+    let scheduler = task_executor.scheduler();
+    // let join_handle = task_executor.run_in_new_thread();
 
     tailwag_web_service::application::WebService::builder("My Events Service")
         // .with_before(gateway::AuthorizationGateway)
@@ -277,11 +274,12 @@ async fn main() {
             // URGENT TODO: Extract this into a ocnfig
             "whsec_c30a4b7e8df448adfc8009ac03c967a8c0ce6d64b2fd855e61d7f24b37509afd".to_string(),
         )
+        // .with_queued_task(handle_stripe_event)
         .with_server_data(scheduler)
         .build_service()
         .run()
         .await
         .unwrap();
 
-    join_handle.join();
+    // join_handle.join();
 }

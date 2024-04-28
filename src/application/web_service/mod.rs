@@ -1,13 +1,15 @@
 use std::io::Write;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
+use crate::tasks::runner::{IntoTaskHandler, TaskExecutor};
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
 use tailwag_orm::data_definition::database_definition::DatabaseDefinition;
@@ -74,9 +76,11 @@ pub struct WebServiceInner {
     admin_rx: Receiver<AdminActions>,
 }
 
-#[derive(tailwag_macros::Deref, Clone)]
+#[derive(tailwag_macros::Deref)]
 pub struct WebService {
+    #[deref]
     inner: std::sync::Arc<WebServiceInner>,
+    task_executor: TaskExecutor,
 }
 
 type MigrationRunners = Vec<
@@ -98,13 +102,14 @@ pub struct WebServiceBuilder {
     middleware_after: Vec<Afterware>,
     resources: DataSystemBuilder,
     server_data: TypeInstanceMap,
+    task_executor: TaskExecutor,
 }
 
 #[cfg(feature = "development")]
 impl Default for WebServiceBuilder {
     fn default() -> Self {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
-        // Load in the current `.env` file, if it exists. If it fails, who cares.
+        // Load in the current `.env` file, if it exists. If it fails, who cares, the rest of the ENV should be set.
         dotenv::dotenv().ok();
         Self {
             config: WebServiceConfig {
@@ -123,6 +128,7 @@ impl Default for WebServiceBuilder {
             root_route: Route::default(),
             forms: HashMap::new(),
             server_data: Default::default(),
+            task_executor: Default::default(),
         }
         .with_resource::<Account>()
         .with_resource::<Session>()
@@ -250,6 +256,18 @@ impl WebServiceBuilder {
         self
     }
 
+    pub fn with_task<F, T, O, Req, Res>(
+        mut self,
+        task_handler: F,
+    ) -> Self
+    where
+        F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static + Fn(Req) -> Res,
+        Req: 'static,
+    {
+        self.task_executor.add_handler(task_handler);
+        self
+    }
+
     pub fn with_before<F: Into<Beforeware>>(
         mut self,
         middleware: F,
@@ -313,21 +331,21 @@ impl WebServiceBuilder {
 
     pub fn build_service(self) -> WebServiceBuildResponse {
         let (admin_tx, admin_rx) = channel();
+        // let WebServiceBuilder { config, root_route, migrations, forms, middleware_before, middleware_after, resources, server_data, task_executor } = self;
+        let mut server_data = self.server_data;
+        server_data.insert(self.task_executor.scheduler());
         let service = WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
-                // data_providers: self.data_providers,
                 resources: self.resources.build(),
-                // router: self.router,
                 routes: self.root_route,
                 migrations: Arc::new(Mutex::new(self.migrations)),
                 middleware_before: self.middleware_before,
                 middleware_after: self.middleware_after,
                 admin_rx,
-                server_data: Arc::new(self.server_data),
-                // middleware: vec![middleware_handler],
-            })
-            .clone(),
+                server_data: Arc::new(server_data),
+            }),
+            task_executor: self.task_executor,
         };
         WebServiceBuildResponse {
             service,
@@ -335,11 +353,12 @@ impl WebServiceBuilder {
         }
     }
 }
+
 #[derive(Deref)]
 pub struct WebServiceBuildResponse {
     #[deref]
-    pub service: WebService,
-    pub sender: Sender<AdminActions>,
+    service: WebService,
+    sender: Sender<AdminActions>,
 }
 
 impl WebServiceBuildResponse {
@@ -351,14 +370,17 @@ impl WebServiceBuildResponse {
 type RequestMetrics = ();
 impl WebService {
     fn print_welcome_message(&self) {
+        let WebServiceConfig {
+            application_name,
+            ..
+        } = &self.config;
         // TODO: Bring this into a template file (.txt or .md)
         log::info!(
             r#"
 =============================================
-   Starting Web Application {}
+   Starting Web Application {application_name}
 =============================================
 "#,
-            &self.config.application_name,
         );
         log::debug!("CONFIGURED ENVIRONMENT: {:?}", &self.config);
         #[cfg(debug_assertions)]
@@ -366,11 +388,10 @@ impl WebService {
             log::warn!(
                 r#"
 ============================================================================="
-    ++ {} IS RUNNING IN DEVELOPMENT MODE ++
+    ++ {application_name} IS RUNNING IN DEVELOPMENT MODE ++
     ++      DO NOT USE IN PRODUCTION YET ++
 ============================================================================="
-"#,
-                self.config.application_name
+"#
             );
         }
     }
@@ -379,33 +400,43 @@ impl WebService {
         WebServiceBuilder::new(name)
     }
 
-    pub async fn run(self) -> Result<RunResult, crate::Error> {
-        self.print_welcome_message();
-
-        let db_pool = PgPoolOptions::new()
-            .max_connections(4)
-            .connect(&self.config.database_conn_string)
-            .await
-            .expect("[DATABASE] Unable to obtain connection to database. Is postgres running?");
+    async fn build_context(
+        &self,
+        db_pool: &PgPool,
+    ) -> ServerContext {
         let data_providers = self.resources.connect(db_pool.clone()).await;
         let server_data = self.server_data.clone();
-        let context: ServerContext = ServerContext {
+
+        ServerContext {
             data_providers,
             server_data,
-        };
-
-        let migrations: MigrationRunners;
-        {
-            // Run migrations
-            let mut mutex_guard = self.migrations.lock()?;
-            migrations = mutex_guard.drain(0..).collect();
-            for migration in migrations {
-                migration(db_pool.clone()).await.expect(
-                    "Failed to run migrations - aborting. Are you sure Postgres is running?",
-                )
-            }
         }
+    }
 
+    async fn run_migrations(
+        &self,
+        db_pool: &PgPool,
+    ) -> Result<(), crate::Error> {
+        // Run migrations
+        let mut mutex_guard = self.migrations.lock()?;
+        let migrations: MigrationRunners = mutex_guard.drain(0..).collect();
+        for migration in migrations {
+            migration(db_pool.clone()).await?;
+        }
+        Ok(())
+    }
+
+    async fn connect_postgres(&self) -> Result<PgPool, crate::Error> {
+        Ok(PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&self.config.database_conn_string)
+            .await?)
+    }
+
+    async fn start_service(
+        &self,
+        context: ServerContext,
+    ) -> Result<RunResult, crate::Error> {
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
         log::info!("Starting service on {}", &bind_addr);
         let listener = TcpListener::bind(&bind_addr).unwrap();
@@ -418,17 +449,27 @@ impl WebService {
 
             println!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
-            let svc = self.clone();
 
-            time_exec!("ENTIRE REQUEST", svc.handle_request(stream, context.clone()).await?);
+            time_exec!("ENTIRE REQUEST", self.handle_request(stream, context.clone()).await?);
 
             println!("Waiting for connection....");
         }
         Ok(RunResult::default())
     }
 
+    pub async fn run(self) -> Result<RunResult, crate::Error> {
+        self.print_welcome_message();
+
+        let db_pool = self.connect_postgres().await?;
+        self.run_migrations(&db_pool).await?;
+        let context = self.build_context(&db_pool).await;
+        let tasks_thread = self.task_executor.run_in_new_thread(context.clone());
+        self.start_service(context.clone()).await
+    }
+}
+impl WebServiceInner {
     pub async fn handle_request(
-        self,
+        &self,
         mut stream: std::net::TcpStream,
         server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
@@ -473,3 +514,7 @@ impl WebService {
         Ok(())
     }
 }
+
+/// This mod adds QueuedTask support to the WebApplication, running in a separate thread.
+/// #[cfg(feature = "tasks")]
+impl WebService {}

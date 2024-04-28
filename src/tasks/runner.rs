@@ -9,6 +9,8 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::application::http::route::ServerContext;
+
 use super::{TaskScheduler, Ticket};
 
 #[derive(Default, Eq, PartialEq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
@@ -134,11 +136,9 @@ pub use from_to_impl::*;
 //         todo!()
 //     }
 // }
+enum TaskExecutorState {}
 
 impl TaskExecutor {
-    fn get_sender(&self) -> Sender<TaskRequest> {
-        self.task_sender.clone()
-    }
     pub fn add_handler<F, T, O, Req, Res>(
         &mut self,
         f: F,
@@ -150,7 +150,10 @@ impl TaskExecutor {
         self.handlers.insert(TypeId::of::<Req>(), f.into());
     }
 
-    pub fn run_in_new_thread(self) -> JoinHandle<()> {
+    pub fn run_in_new_thread(
+        self,
+        context: ServerContext,
+    ) -> JoinHandle<()> {
         std::thread::spawn(|| self.run())
     }
     pub fn run(self) {
@@ -166,7 +169,7 @@ impl TaskExecutor {
             };
         }
     }
-    pub fn get_scheduler(&self) -> TaskScheduler {
+    pub fn scheduler(&self) -> TaskScheduler {
         TaskScheduler {
             task_queue: self.task_sender.clone(),
         }
