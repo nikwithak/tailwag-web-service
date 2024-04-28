@@ -275,7 +275,7 @@ async fn process_checkout_session_completed_event(
     let Some(order_id) = session
         .client_reference_id
         .as_ref()
-        .and_then(|oid| uuid::Uuid::parse_str(&oid).ok())
+        .and_then(|oid| uuid::Uuid::parse_str(oid).ok())
     else {
         Err("Invalid order ID received")?
     };
@@ -383,11 +383,6 @@ pub async fn process_event(
         type_,
         ..
     } = &event;
-
-    log::debug!("Processing Stripe webhook event {}", id.to_string());
-    println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
-    println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
-    println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
 
     match type_ {
         stripe::EventType::CheckoutSessionCompleted => {

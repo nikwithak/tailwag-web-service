@@ -79,7 +79,6 @@ pub trait IntoTaskHandler<F, Tag, Req> {
 }
 
 pub struct TaskExecutor {
-    is_running: bool,
     handlers: HashMap<TypeId, TaskHandler>,
     task_queue: Receiver<TaskRequest>,
     task_sender: Sender<TaskRequest>,
@@ -89,51 +88,12 @@ impl Default for TaskExecutor {
     fn default() -> Self {
         let (task_sender, task_queue) = channel::<TaskRequest>();
         Self {
-            is_running: false,
             handlers: Default::default(),
             task_queue,
             task_sender,
         }
     }
 }
-
-// impl<F, I, O> IntoTaskHandler<F, I, O> for F
-// where
-//     F: Send + Sync + 'static + Fn(I, O) -> O,
-//     I: FromTaskRequest + Sized + Send,
-//     O: IntoTaskResult + Sized + Send,
-// {
-//     fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
-//         Box::new(move |req, ctx| self(I::from(req)).into())
-//     }
-// }
-
-struct Tag;
-// impl<F, I, C, O> IntoTaskHandler<F, (Tag, I, C), O> for F
-// where
-//     F: Send + Sync + 'static + Fn(I, C) -> O,
-//     I: FromTaskRequest + Sized + Send + 'static,
-//     O: IntoTaskResult + Sized + Send + 'static,
-//     C: From<ServerContext> + Sized + Send + 'static,
-// {
-//     fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
-//         Box::new(move |req, ctx| self(I::from(req), C::from(ctx)).into())
-//     }
-// }
-
-// impl<F, I, C, O, Fut> IntoTaskHandler<F, (I, C), (Fut, O)> for F
-// where
-//     F: Send + Sync + 'static + Fn(I, C) -> Fut,
-//     I: FromTaskRequest + Sized + Send + 'static,
-//     O: IntoTaskResult + Sized + Send + 'static,
-//     C: From<ServerContext> + Sized + Send + 'static,
-//     Fut: Future<Output = O> + Send + Sync + 'static,
-// {
-//     fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
-//         todo!()
-//         // Box::new(move |req, ctx| self(I::from(req), C::from(ctx)).into())
-//     }
-// }
 
 macro_rules! generate_trait_impl {
     (R, $($context_id:ident),*) => {
