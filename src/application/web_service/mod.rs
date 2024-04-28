@@ -257,12 +257,12 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn with_task<F, T, O, Req, Ctx>(
+    pub fn with_task<F, T, Req>(
         mut self,
         task_handler: F,
     ) -> Self
     where
-        F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static + Fn(Req, Ctx) -> O,
+        F: IntoTaskHandler<F, T, Req> + Sized + Sync + Send + 'static,
         Req: 'static,
     {
         self.task_executor.add_handler(task_handler);
@@ -358,8 +358,8 @@ impl WebServiceBuilder {
 #[derive(Deref)]
 pub struct WebServiceBuildResponse {
     #[deref]
-    service: WebService,
-    sender: Sender<AdminActions>,
+    pub service: WebService,
+    pub sender: Sender<AdminActions>,
 }
 
 impl WebServiceBuildResponse {
@@ -462,7 +462,7 @@ impl WebService {
         &mut self,
         context: ServerContext,
     ) -> Option<JoinHandle<()>> {
-        self.task_executor.take().map(|exec| exec.run_in_new_thread(context))
+        self.task_executor.take().map(|exec| std::thread::spawn(|| exec.run(context)))
     }
 
     pub async fn run(mut self) -> Result<RunResult, crate::Error> {

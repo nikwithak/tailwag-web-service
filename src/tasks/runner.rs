@@ -1,11 +1,13 @@
 use std::{
     any::TypeId,
     collections::HashMap,
+    pin::Pin,
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
 };
 
 use chrono::NaiveDateTime;
+use futures::Future;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -67,7 +69,8 @@ pub enum TaskError {
     Unknown(String),
 }
 
-type Handler<Req, Ctx, Res> = Box<dyn Send + 'static + Sync + Fn(Req, Ctx) -> Res>;
+type Handler<Req, Ctx, Res> =
+    Box<dyn Send + 'static + Sync + Fn(Req, Ctx) -> Pin<Box<dyn Future<Output = Res>>>>;
 type TaskHandler = Handler<TaskRequest, ServerContext, TaskResult>;
 // Going to use the same pattern as [IntoRouteHandler<F, Tag, IO>].
 // Start thinking of an abstraction approach. Maybe add a <Req, Res> to the TaskHandler type?
@@ -106,71 +109,111 @@ impl Default for TaskExecutor {
 // }
 
 struct Tag;
-impl<F, I, C, O> IntoTaskHandler<F, (I, C), O> for F
-where
-    F: Send + Sync + 'static + Fn(I, C) -> O,
-    I: FromTaskRequest + Sized + Send + 'static,
-    O: IntoTaskResult + Sized + Send + 'static,
-    C: From<ServerContext> + Sized + Send + 'static,
-{
-    fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
-        Box::new(move |req, ctx| self(I::from(req), C::from(ctx)).into())
-    }
+// impl<F, I, C, O> IntoTaskHandler<F, (Tag, I, C), O> for F
+// where
+//     F: Send + Sync + 'static + Fn(I, C) -> O,
+//     I: FromTaskRequest + Sized + Send + 'static,
+//     O: IntoTaskResult + Sized + Send + 'static,
+//     C: From<ServerContext> + Sized + Send + 'static,
+// {
+//     fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
+//         Box::new(move |req, ctx| self(I::from(req), C::from(ctx)).into())
+//     }
+// }
+
+// impl<F, I, C, O, Fut> IntoTaskHandler<F, (I, C), (Fut, O)> for F
+// where
+//     F: Send + Sync + 'static + Fn(I, C) -> Fut,
+//     I: FromTaskRequest + Sized + Send + 'static,
+//     O: IntoTaskResult + Sized + Send + 'static,
+//     C: From<ServerContext> + Sized + Send + 'static,
+//     Fut: Future<Output = O> + Send + Sync + 'static,
+// {
+//     fn into(self) -> Handler<TaskRequest, ServerContext, TaskResult> {
+//         todo!()
+//         // Box::new(move |req, ctx| self(I::from(req), C::from(ctx)).into())
+//     }
+// }
+
+macro_rules! generate_trait_impl {
+    (R, $($context_id:ident),*) => {
+        impl<F, I, $($context_id,)* O, Fut, >
+            IntoTaskHandler<F, ($($context_id,)* I, O, Fut), I> for F
+        where
+            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            I: FromTaskRequest + Sized + 'static,
+            $($context_id: From<ServerContext> + Sized + 'static,)*
+            O: IntoTaskResult + Sized + Send + 'static,
+            Fut: std::future::Future<Output = O> + 'static + Send,
+        {
+            fn into(self) -> TaskHandler {
+                    Box::new(move |req, ctx| {
+                        Box::pin(async move {
+                            self(I::from(req), $($context_id::from(ctx.clone())),*)
+                                .await
+                                .into()
+                        })
+                    })
+            }
+        }
+
+        impl<F, I, $($context_id,)* O>
+            IntoTaskHandler<F, ($($context_id,)* I, O), I> for F
+        where
+            F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
+            I: FromTaskRequest + Sized + 'static,
+            $($context_id: From<ServerContext> + Sized + 'static,)*
+            O: IntoTaskResult + Sized + Send + 'static,
+        {
+            fn into(self) -> TaskHandler {
+                    Box::new(move |req, ctx| {
+                        Box::pin(async move {
+                            self(I::from(req), $($context_id::from(ctx.clone())),*)
+                                .into()
+                        })
+                    })
+            }
+        }
+    };
 }
 
-// macro_rules! generate_trait_impl {
-//     (R1, $($context_id:ident),*) => {
-//         // impl<F, I, $($context_id,)* O, Fut>
-//         //     IntoTaskHandler<F, (Fut, $($context_id,)*), (($($context_id),*), I, (O, Fut))> for F
-//         // where
-//         //     F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
-//         //     I: FromTaskRequest + Sized + 'static,
-//         //     $($context_id: From<ServerContext> + Sized + 'static,)*
-//         //     O: IntoTaskResult + Sized + Send + 'static,
-//         //     Fut: std::future::Future<Output = O> + 'static + Send,
-//         // {
-//         //     fn into(self) -> TaskHandler {
-//         //         TaskHandler {
-//         //             handler: Box::new(move |req, ctx| {
-//         //                 Box::pin(async move {
-//         //                     self(I::from(req), $($context_id::from(ctx.clone())),*)
-//         //                         .await
-//         //                         .into_response()
-//         //                 })
-//         //             }),
-//         //         }
-//         //     }
-//         // }
-
-//         impl<F, I, $($context_id,)* O>
-//             IntoTaskHandler<F, ($($context_id,)*), (($($context_id),*), I, (O))> for F
-//         where
-//             F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
-//             I: FromTaskRequest + Sized + 'static,
-//             $($context_id: From<ServerContext> + Sized + 'static,)*
-//             O: IntoTaskResult + Sized + Send + 'static,
-//         {
-//             fn into(self) -> TaskHandler {
-//                 TaskHandler {
-//                     handler: Box::new(move |req, ctx| {
-//                         Box::pin(async move {
-//                             self(I::from(req), $($context_id::from(ctx.clone())),*)
-//                                 .into_response()
-//                         })
-//                     }),
-//                 }
-//             }
-//         }
-//     };
-// }
-// generate_trait_impl!(R1, C1);
+impl<F, Req, O, Fut> IntoTaskHandler<F, ((), Req, O, Fut), Req> for F
+where
+    F: Fn(Req) -> Fut + Send + Copy + 'static + Sync,
+    Req: FromTaskRequest + Sized + 'static,
+    O: IntoTaskResult + Sized + Send + 'static,
+    Fut: std::future::Future<Output = O> + 'static + Send,
+{
+    fn into(self) -> TaskHandler {
+        Box::new(move |req, ctx: ServerContext| {
+            Box::pin(async move { self(Req::from(req)).await.into() })
+        })
+    }
+}
+impl<F, Req, O> IntoTaskHandler<F, ((), Req, O), Req> for F
+where
+    F: Fn(Req) -> O + Send + Copy + 'static + Sync,
+    Req: FromTaskRequest + Sized + 'static,
+    O: IntoTaskResult + Sized + Send + 'static,
+{
+    fn into(self) -> TaskHandler {
+        Box::new(move |req, _ctx: ServerContext| {
+            Box::pin(async move { self(Req::from(req)).into() })
+        })
+    }
+}
+generate_trait_impl!(R, C1);
+// generate_trait_impl!(R, C1, C2);
+// generate_trait_impl!(R, C1, C2, C3,);
+// generate_trait_impl!(R, C1, C2, C3, C4);
+// generate_trait_impl!(R, C1, C2, C3, C4, C5);
 
 /// From / To implementations - required in order to make this generic over foreign types.
 /// Either it can't be done without creating custom versions of the From/To traits,
 /// or I'm missing something obvious. I spent a long time trying to navigate this
 /// with the compiler.
 mod from_to_impl {
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
     use super::{TaskRequest, TaskResult};
 
@@ -186,7 +229,7 @@ mod from_to_impl {
     pub trait IntoTaskResult {
         fn into(self) -> TaskResult;
     }
-    impl<T> IntoTaskResult for T {
+    impl<T: Serialize> IntoTaskResult for T {
         fn into(self) -> TaskResult {
             Ok(())
         }
@@ -199,24 +242,27 @@ enum Signal {
 }
 
 impl TaskExecutor {
-    pub fn add_handler<F, T, O, Req, Ctx>(
+    pub fn add_handler<F, T, Req>(
         &mut self,
         f: F,
     ) where
-        F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static + Fn(Req, Ctx) -> O,
+        F: IntoTaskHandler<F, T, Req> + Sized + Sync + Send + 'static,
+        // F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static,
         Req: 'static,
     {
         log::debug!("Adding Request Type: {:?}", TypeId::of::<Req>());
         self.handlers.insert(TypeId::of::<Req>(), f.into());
     }
 
-    pub fn run_in_new_thread(
+    pub async fn run_in_new_thread(
         self,
         context: ServerContext,
     ) -> JoinHandle<()> {
         std::thread::spawn(move || self.run(context))
     }
-    pub fn run(
+
+    #[tokio::main(flavor = "current_thread")]
+    pub async fn run(
         self,
         context: ServerContext,
     ) {
@@ -226,7 +272,7 @@ impl TaskExecutor {
                 // Any "Signal" is treated as kill for time being
                 break;
             }
-            match self.handle_task(task, context.clone()) {
+            match self.handle_task(task, context.clone()).await {
                 Ok(_) => {
                     log::info!("[TASK {id}] COMPLETED TASK");
                 },
@@ -243,14 +289,14 @@ impl TaskExecutor {
         }
     }
 
-    fn handle_task(
+    async fn handle_task(
         &self,
         task: TaskRequest,
         context: ServerContext,
     ) -> TaskResult {
         log::debug!("Retrieving Request Type: {:?}", &task.type_id);
         let handler = self.handlers.get(&task.type_id).ok_or(TaskError::TaskNotFound)?;
-        handler(task, context)
+        handler(task, context).await
     }
 }
 
