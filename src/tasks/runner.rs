@@ -76,14 +76,17 @@ pub trait IntoTaskHandler<F, Tag, IO> {
 }
 
 pub struct TaskExecutor {
+    is_running: bool,
     handlers: HashMap<TypeId, TaskHandler>,
     task_queue: Receiver<TaskRequest>,
     task_sender: Sender<TaskRequest>,
 }
+
 impl Default for TaskExecutor {
     fn default() -> Self {
         let (task_sender, task_queue) = channel::<TaskRequest>();
         Self {
+            is_running: false,
             handlers: Default::default(),
             task_queue,
             task_sender,
@@ -137,6 +140,9 @@ pub use from_to_impl::*;
 //     }
 // }
 enum TaskExecutorState {}
+enum Signal {
+    Kill,
+}
 
 impl TaskExecutor {
     pub fn add_handler<F, T, O, Req, Res>(
@@ -159,6 +165,9 @@ impl TaskExecutor {
     pub fn run(self) {
         while let Ok(task) = self.task_queue.recv() {
             let id = task.id.clone();
+            if TypeId::of::<Signal>() == task.type_id {
+                break;
+            }
             match self.handle_task(task) {
                 Ok(_) => {
                     log::info!("[TASK {id}] COMPLETED TASK");

@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
@@ -80,7 +81,7 @@ pub struct WebServiceInner {
 pub struct WebService {
     #[deref]
     inner: std::sync::Arc<WebServiceInner>,
-    task_executor: TaskExecutor,
+    task_executor: Option<TaskExecutor>,
 }
 
 type MigrationRunners = Vec<
@@ -105,7 +106,7 @@ pub struct WebServiceBuilder {
     task_executor: TaskExecutor,
 }
 
-#[cfg(feature = "development")]
+#[cfg(debug_assertions)]
 impl Default for WebServiceBuilder {
     fn default() -> Self {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
@@ -345,7 +346,7 @@ impl WebServiceBuilder {
                 admin_rx,
                 server_data: Arc::new(server_data),
             }),
-            task_executor: self.task_executor,
+            task_executor: Some(self.task_executor),
         };
         WebServiceBuildResponse {
             service,
@@ -457,14 +458,26 @@ impl WebService {
         Ok(RunResult::default())
     }
 
-    pub async fn run(self) -> Result<RunResult, crate::Error> {
+    fn start_task_executor(
+        &mut self,
+        context: ServerContext,
+    ) -> Option<JoinHandle<()>> {
+        self.task_executor.take().map(|exec| exec.run_in_new_thread(context))
+    }
+
+    pub async fn run(mut self) -> Result<RunResult, crate::Error> {
         self.print_welcome_message();
 
         let db_pool = self.connect_postgres().await?;
         self.run_migrations(&db_pool).await?;
         let context = self.build_context(&db_pool).await;
-        let tasks_thread = self.task_executor.run_in_new_thread(context.clone());
-        self.start_service(context.clone()).await
+
+        let tasks_thread = self.start_task_executor(context.clone());
+        let result = self.start_service(context.clone()).await;
+
+        // Let the tasks_thread die
+        tasks_thread.map(|thread| thread.join());
+        result
     }
 }
 impl WebServiceInner {

@@ -251,12 +251,6 @@ pub fn handle_stripe_event(
 
 #[tokio::main]
 async fn main() {
-    // Example: I want to set up a worker process for the completed stripe events:
-    let mut task_executor = TaskExecutor::default();
-    task_executor.add_handler(handle_stripe_event);
-    let scheduler = task_executor.scheduler();
-    // let join_handle = task_executor.run_in_new_thread();
-
     tailwag_web_service::application::WebService::builder("My Events Service")
         // .with_before(gateway::AuthorizationGateway)
         .post_public("/login", gateway::login)
@@ -274,8 +268,7 @@ async fn main() {
             // URGENT TODO: Extract this into a ocnfig
             "whsec_c30a4b7e8df448adfc8009ac03c967a8c0ce6d64b2fd855e61d7f24b37509afd".to_string(),
         )
-        // .with_queued_task(handle_stripe_event)
-        .with_server_data(scheduler)
+        .with_task(handle_stripe_event)
         .build_service()
         .run()
         .await
