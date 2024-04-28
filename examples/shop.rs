@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use stripe::Event;
-use tailwag_macros::derive_magic;
-use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
+use stripe::{CheckoutSessionPaymentStatus, Event, EventObject};
+use tailwag_macros::{derive_magic, Display};
+use tailwag_orm::{
+    data_manager::{traits::DataProvider, PostgresDataProvider},
+    queries::filterable_types::FilterEq,
+};
 use tailwag_web_service::{
     application::http::route::{FromRequest, IntoResponse, Request, Response, ServerData},
     auth::gateway,
@@ -12,6 +15,7 @@ use tailwag_web_service::{
         TaskScheduler,
     },
 };
+use tokio::sync::watch::error;
 use uuid::Uuid;
 
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
@@ -67,12 +71,23 @@ derive_magic! {
         id: Uuid,
         customer_name: String,
         customer_email: String,
+        // TODO: I need to fix enums in the ORM first. ORM tightening is going to be next major feature, it's really holidng me back.
+        // status: ShopOrderStatus,
         status: String,
-        stripe_order_id: String,
+        stripe_session_id: String,
         // line_items: Vec<String>, // TODO: Fix thiiiis
         // name: String,
         // description: String,
     }
+}
+#[derive(Display)]
+enum ShopOrderStatus {
+    Created,
+    Canceled,
+    Paid,
+    Shipped,
+    Delivered,
+    Completed,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -241,12 +256,151 @@ pub mod checkout {
     }
 }
 
-pub fn handle_stripe_event(
+pub async fn handle_stripe_event(
     event: ProcessStripeEvent,
-    // orders: PostgresDataProvider<ShopOrder>,
+    orders: PostgresDataProvider<ShopOrder>,
 ) -> String {
-    log::info!("Recevied event: {:?}", event);
-    format!("FOUND: {:?}", event)
+    log::info!("[STRIPE] Received event: {:?}", event);
+
+    async fn process_checkout_session_completed_event(
+        event: &stripe::Event,
+        orders: impl DataProvider<ShopOrder>,
+    ) -> Result<(), tailwag_web_service::Error> {
+        let EventObject::CheckoutSession(session) = &event.data.object else {
+            Err("Invalid checkout session received.")?
+        };
+        let Some(order_id) = session
+            .client_reference_id
+            .as_ref()
+            .and_then(|oid| uuid::Uuid::parse_str(&oid).ok())
+        else {
+            Err("Invalid order ID received")?
+        };
+        let Ok(Some(mut order)) = orders.get(|o| o.id.eq(order_id)).await else {
+            Err("Could not find order in DB")?
+        };
+
+        order.stripe_session_id = session.id.to_string();
+        match session.payment_status {
+            CheckoutSessionPaymentStatus::Paid => order.status = ShopOrderStatus::Paid.to_string(),
+            CheckoutSessionPaymentStatus::Unpaid => {
+                order.status = ShopOrderStatus::Canceled.to_string()
+            },
+            CheckoutSessionPaymentStatus::NoPaymentRequired => {
+                order.status = ShopOrderStatus::Paid.to_string()
+            },
+        }
+
+        if orders.update(&order).await.is_err() {
+            log::error!("Failed to update order {}", &order_id);
+        };
+        log::info!("Order {order_id} status updated to {}", order_id);
+
+        // if let Some(customer) = &session.customer_details {
+        //     let customer = &**customer;
+        //     order.customer_detail = Some(CustomerDetail {
+        //         // customer_name: customer.name,
+        //         customer_name: order.customer_detail.map_or(None, |c| c.customer_name),
+        //         customer_phone: customer.phone.as_ref().map(|p| p.to_string()),
+        //         customer_email: customer.email.as_ref().map(|e| e.to_string()),
+        //     });
+        // }
+
+        // if let Some(stripe_shipping) = &session.shipping {
+        //     order.shipping_detail = Some(ShippingInfo::from(&**stripe_shipping));
+        // }
+        // order.customer_phone = session.customer_details.as_ref().map_or(None,
+        // |detail| { detail.phone.map_or(None, |p|
+        // Some(*p.clone()) });
+        // if let Some(customer) = session.customer {
+        //     match *customer {
+        //         stripe::Expandable::Object(customer) => {
+        //             order.customer_name = customer.name.map(|n| *n.clone());
+        //         },
+        //         stripe::Expandable::Id(id) => {
+        //             order.customer_name =  Some(id.to_string());
+        //             log::info!("Order processed for customer_id {}", id);
+        //         }
+        //     }
+        // } else {
+        //     log::info!("No customer found");
+        // }
+
+        // order.amount = Some(OrderAmount::from(&session));
+
+        // Send emails if it hasn't already been sent
+        // if !order.confirmation_email_sent {
+        //     if let Some(email) =
+        //         order.customer_detail.as_ref().map(|c| c.customer_email.as_ref()).flatten()
+        //     {
+        //         // TODO: Externalize content
+        //         match send_email(
+        //             &email,
+        //             "Your Scrapplique Order",
+        //             &get_order_confirmation_email_content(&order),
+        //         )
+        //         .await
+        //         {
+        //             Err(e) => {
+        //                 log::error!("Failed to send order confirmation email {}", e);
+        //             },
+        //             _ => log::info!("Send e mail for order id {}", &order.id),
+        //         };
+        //     } else {
+        //         log::error!("Processed order without customer email: {}", &order.id);
+        //     }
+
+        //     // Send email to Business
+        //     // TODO: Externalize this
+        //     match send_email(
+        //         "nik@tonguetail.com",
+        //         "You have a new order!!",
+        //         "Visit https://beta.scrapplique.com/manage/orders to view it",
+        //     )
+        //     .await
+        //     {
+        //         Err(e) => {
+        //             log::error!("Failed to send order confirmation email {}", e);
+        //         },
+        //         _ => log::info!("Send e mail for order id {}", &order.id),
+        //     };
+        //     order.confirmation_email_sent = true;
+        // }
+
+        // dbg!(&order).save(&db.pool).await?;
+        // Ok(())
+        Ok(())
+    }
+    pub async fn process_event(
+        event: &stripe::Event,
+        orders: impl DataProvider<ShopOrder>,
+    ) -> Result<(), tailwag_web_service::Error> {
+        let stripe::Event {
+            id,
+            type_,
+            ..
+        } = &event;
+
+        log::debug!("Processing Stripe webhook event {}", id.to_string());
+        println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
+        println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
+        println!("JSIODJFOIDSJFOIDSJFDSJFDSJFOIDSJFPOIDSJFPIDSJFPOIDSJF");
+
+        match type_ {
+            stripe::EventType::CheckoutSessionCompleted => {
+                process_checkout_session_completed_event(event, orders).await
+            },
+            _ => {
+                log::info!("Ignoring webhook event {}", serde_json::to_string(type_)?);
+                Ok(())
+            },
+        }
+    }
+    ///... This is working in that it's getting the event. Now I have to pipe it all through again for async :facepalm:
+    /// @NIK START HERE TOMORROW
+    /// AFTER THIS SPEND TIME ON THE ORM
+    process_event(&event.event, orders).await;
+    "Finished.".to_string()
 }
 
 #[tokio::main]

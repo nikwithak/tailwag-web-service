@@ -257,12 +257,12 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn with_task<F, T, O, Req, Res>(
+    pub fn with_task<F, T, O, Req, Ctx>(
         mut self,
         task_handler: F,
     ) -> Self
     where
-        F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static + Fn(Req) -> Res,
+        F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static + Fn(Req, Ctx) -> O,
         Req: 'static,
     {
         self.task_executor.add_handler(task_handler);
