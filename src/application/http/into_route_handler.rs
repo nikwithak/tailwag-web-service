@@ -7,6 +7,8 @@ use std::future::Future;
 
 use crate::application::http::route::{FromRequest, IntoResponse, RouteHandler, ServerContext};
 
+use super::route::Response;
+
 impl IntoRouteHandler<(), (), ()> for RouteHandler {
     fn into(self) -> RouteHandler {
         self
@@ -36,11 +38,17 @@ where
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |req, _ctx| {
-                Box::pin(async move { self(I::from(req)).await.into_response() })
+                Box::pin(async move {
+                    let Ok(request) = I::from(req) else {
+                        return Response::bad_request();
+                    };
+                    self(request).await.into_response()
+                })
             }),
         }
     }
 }
+
 pub struct RouteArgsNone;
 impl<F, O> IntoRouteHandler<F, RouteArgsNone, O> for F
 where
@@ -97,7 +105,12 @@ where
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |req, _ctx| {
-                Box::pin(async move { self(I::from(req)).await.into_response() })
+                Box::pin(async move {
+                    let Ok(req) = I::from(req) else {
+                        return Response::bad_request();
+                    };
+                    self(req).await.into_response()
+                })
             }),
         }
     }
@@ -113,7 +126,12 @@ where
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |req, _ctx| {
-                Box::pin(async move { self(I::from(req)).into_response() })
+                Box::pin(async move {
+                    let Ok(req) = I::from(req) else {
+                        return Response::bad_request();
+                    };
+                    self(req).into_response()
+                })
             }),
         }
     }
@@ -134,7 +152,12 @@ macro_rules! generate_trait_impl {
                 RouteHandler {
                     handler: Box::new(move |req, ctx| {
                         Box::pin(async move {
-                            self(I::from(req), $($context_id::from(ctx.clone())),*)
+
+                let Ok(req) = I::from(req) else {
+                    return Response::bad_request();
+                };
+                            self(
+                                req, $($context_id::from(ctx.clone())),*)
                                 .await
                                 .into_response()
                         })
@@ -155,7 +178,11 @@ macro_rules! generate_trait_impl {
                 RouteHandler {
                     handler: Box::new(move |req, ctx| {
                         Box::pin(async move {
-                            self(I::from(req), $($context_id::from(ctx.clone())),*)
+
+                            let Ok(req) = I::from(req) else {
+                                return Response::bad_request();
+                            };
+                            self(req, $($context_id::from(ctx.clone())),*)
                                 .into_response()
                         })
                     }),
@@ -224,7 +251,12 @@ where
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |req, ctx| {
-                Box::pin(async move { self(I::from(req), C::from(ctx)).await.into_response() })
+                Box::pin(async move {
+                    let Ok(req) = I::from(req) else {
+                        return Response::bad_request();
+                    };
+                    self(req, C::from(ctx)).await.into_response()
+                })
             }),
         }
     }
@@ -240,7 +272,12 @@ where
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |req, ctx| {
-                Box::pin(async move { self(I::from(req), C::from(ctx)).into_response() })
+                Box::pin(async move {
+                    let Ok(req) = I::from(req) else {
+                        return Response::bad_request();
+                    };
+                    self(req, C::from(ctx)).into_response()
+                })
             }),
         }
     }

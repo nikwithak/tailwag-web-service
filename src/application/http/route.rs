@@ -389,22 +389,23 @@ pub struct Request {
 }
 
 impl<T: for<'a> Deserialize<'a>> FromRequest for T {
-    fn from(req: Request) -> Self {
+    fn from(req: Request) -> Result<Self, crate::Error> {
         // TODO: Return this as a Result so we can route based on it later
         // ^^^ that didn't work,
         match &req.body {
             HttpBody::Json(body) => {
                 let bytes = body.as_bytes();
-                let desered = serde_json::from_slice(bytes);
-                desered.unwrap()
+                let desered = serde_json::from_slice(bytes)?;
+                Ok(desered)
                 // serde_json::from_slice(body.as_bytes()).unwrap(),
             },
-            HttpBody::Bytes(_) => todo!(),
-            HttpBody::Stream(_) => todo!(),
-            HttpBody::Multipart(_) => todo!(),
-            // HttpBody::Plaintext(String) => todo!(),
-            HttpBody::None => todo!(),
-            HttpBody::Html(_) => todo!(),
+            // HttpBody::Bytes(_) => todo!(),
+            // HttpBody::Stream(_) => todo!(),
+            // HttpBody::Multipart(_) => todo!(),
+            // // HttpBody::Plaintext(String) => todo!(),
+            // HttpBody::None => todo!(),
+            // HttpBody::Html(_) => todo!(),
+            _ => Err("Unsupported content-type provided - the way content-type is handled needs to be rethought.")?
         }
     }
 }
@@ -684,21 +685,24 @@ pub trait FromRequest
 where
     Self: Sized,
 {
-    fn from(req: Request) -> Self;
+    fn from(req: Request) -> Result<Self, crate::Error>;
 }
 
 impl FromRequest for Request {
-    fn from(req: Request) -> Self {
-        req
+    fn from(req: Request) -> Result<Self, crate::Error> {
+        Ok(req)
     }
 }
 impl<T> FromRequest for PathVariable<T>
 where
-    T: From<String>,
+    T: From<String> + Display,
 {
-    fn from(req: Request) -> Self {
+    fn from(req: Request) -> Result<Self, crate::Error> {
         // TODO: Not robust
-        PathVariable(req.path_params.first().unwrap().to_owned().into())
+        match req.path_params.first() {
+            Some(val) => Ok(PathVariable(val.to_owned().into())),
+            None => Err("Unable to extract path variable".into()),
+        }
     }
 }
 

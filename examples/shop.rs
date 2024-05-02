@@ -434,6 +434,4 @@ async fn main() {
         .run()
         .await
         .unwrap();
-
-    // join_handle.join();
 }

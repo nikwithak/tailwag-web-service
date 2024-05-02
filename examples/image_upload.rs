@@ -82,13 +82,16 @@ impl FromMultipartPart for Image {
 }
 
 impl FromRequest for Image {
-    fn from(req: tailwag_web_service::application::http::route::Request) -> Self {
-        match req.body {
+    fn from(
+        req: tailwag_web_service::application::http::route::Request
+    ) -> Result<Self, tailwag_web_service::Error> {
+        let result = match req.body {
             tailwag_web_service::application::http::route::HttpBody::Multipart(parts) => {
-                parts.into_iter().find_map(Image::from_multipart_part).unwrap()
+                parts.into_iter().find_map(Image::from_multipart_part)?
             },
             _ => todo!("Need to refactor FromRequest to return an error (for bad requests / etc)"),
-        }
+        };
+        Ok(resul)
     }
 }
 
