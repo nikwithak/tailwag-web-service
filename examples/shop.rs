@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 use stripe::{CheckoutSessionPaymentStatus, Event, EventObject};
 use tailwag_macros::{derive_magic, Display};
@@ -8,14 +6,10 @@ use tailwag_orm::{
     queries::filterable_types::FilterEq,
 };
 use tailwag_web_service::{
-    application::http::route::{FromRequest, IntoResponse, Request, Response, ServerData},
+    application::http::route::{IntoResponse, Request, Response, ServerData},
     auth::gateway,
-    tasks::{
-        runner::{TaskExecutor, TaskResult},
-        TaskScheduler,
-    },
+    tasks::TaskScheduler,
 };
-use tokio::sync::watch::error;
 use uuid::Uuid;
 
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
@@ -27,14 +21,29 @@ mod tailwag {
     pub use tailwag_web_service as web;
 }
 
-derive_magic! {
-    #[post(create_product)]
-    pub struct Product {
-        id: Uuid,
-        name: String,
-        description: String,
-        stripe_price_id: String,
-    }
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    sqlx::FromRow,
+    tailwag::macros::GetTableDefinition,
+    tailwag::macros::Insertable,
+    tailwag::macros::Updateable,
+    tailwag::macros::Deleteable,
+    tailwag::macros::Filterable,
+    tailwag::macros::BuildRoutes,
+    tailwag::macros::Id,
+    tailwag::macros::Display,
+    tailwag::forms::macros::GetForm,
+)]
+#[post(create_product)]
+pub struct Product {
+    id: Uuid,
+    name: String,
+    description: String,
+    stripe_price_id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,7 +61,6 @@ pub async fn create_product(
         <PostgresDataProvider<Product> as DataProvider<Product>>::CreateRequest;
     products
         .create(ProductCreateRequest {
-            id: Uuid::new_v4(),
             name: req.name,
             description: req.description.unwrap_or_default(),
             stripe_price_id,
@@ -64,23 +72,36 @@ fn create_stripe_product() -> String {
     todo!()
 }
 
-// TODO (interface improvement): Wrap all of these in a single "resources" macro, that splits off of "struct"
-derive_magic! {
-    #[actions(stripe_event)]
-    pub struct ShopOrder {
-        id: Uuid,
-        customer_name: String,
-        customer_email: String,
-        // TODO: I need to fix enums in the ORM first. ORM tightening is going to be next major feature, it's really holidng me back.
-        // status: ShopOrderStatus,
-        status: String,
-        stripe_session_id: String,
-        // line_items: Vec<String>, // TODO: Fix thiiiis
-        // name: String,
-        // description: String,
-    }
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    sqlx::FromRow,
+    tailwag::macros::GetTableDefinition,
+    tailwag::macros::Insertable,
+    tailwag::macros::Updateable,
+    tailwag::macros::Deleteable,
+    tailwag::macros::Filterable,
+    tailwag::macros::BuildRoutes,
+    tailwag::macros::Id,
+    tailwag::macros::Display,
+    tailwag::forms::macros::GetForm,
+)]
+#[actions(stripe_event)]
+pub struct ShopOrder {
+    id: Uuid,
+    customer_name: String,
+    customer_email: String,
+    status: String,
+    stripe_session_id: String,
+    // #[no_filter]
+    // #[sqlx(skip)]
+    // product: Product,
 }
 #[derive(Display)]
+#[allow(unused)]
 enum ShopOrderStatus {
     Created,
     Canceled,
@@ -98,9 +119,7 @@ pub struct ProcessStripeEvent {
 pub type StripeSecret = String;
 pub async fn stripe_event(
     request: Request,
-    data_providers: tailwag_orm::data_definition::exp_data_system::DataSystem,
-    // stripe_signature: Header<StripeSignature>,
-    // order_processing_queue: Data<UnboundedSender<ThreadCommand<stripe::WebhookEvent>>>,
+    _data_providers: tailwag_orm::data_definition::exp_data_system::DataSystem,
     webhook_secret: ServerData<StripeSecret>,
     mut task_queuer: TaskScheduler,
 ) -> impl IntoResponse {
@@ -108,7 +127,6 @@ pub async fn stripe_event(
     let Some(stripe_signature) = request.headers.get("stripe-signature").cloned() else {
         return Response::not_found();
     };
-    // let body: stripe::Event = <stripe::Event as FromRequest>::from(request); // TODO: INterface improvments. Use actual "From<Request>"
     let tailwag_web_service::application::http::route::HttpBody::Json(body) = request.body else {
         return Response::bad_request();
     };
@@ -187,7 +205,6 @@ pub mod checkout {
         type OrderCreateRequest =
             <PostgresDataProvider<ShopOrder> as DataProvider<ShopOrder>>::CreateRequest;
         let order = OrderCreateRequest {
-            id: uuid::Uuid::new_v4(),
             ..Default::default()
         };
         let order = orders.create(order).await.unwrap();

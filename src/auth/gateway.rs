@@ -229,8 +229,7 @@ pub async fn login(
         ..account
     };
     let Ok(new_session) = sessions
-        .create(Session {
-            id: Uuid::new_v4(),
+        .create(SessionCreateRequest {
             account_id: account.id,
             start_time: Utc::now().naive_utc(),
             expiry_time: Utc::now().naive_utc() + Duration::from_millis(SESSION_LENGTH_MS),
@@ -286,8 +285,7 @@ pub async fn register(
     // TODO: Error instead of Option
     let passhash = Argon2::default().hash_password(request.password.as_bytes(), salt).ok()?;
     let account = accounts
-        .create(Account {
-            id: Uuid::new_v4(),
+        .create(AccountCreateRequest {
             email_address: request.email_address,
             passhash: passhash.to_string(),
         })

@@ -229,7 +229,7 @@ impl WebServiceBuilder {
             + GetForm
             + for<'a> Deserialize<'a>
             + Serialize
-            + for<'r> sqlx::FromRow<'r, PgRow>
+            // + for<'r> sqlx::FromRow<'r, PgRow>
             + Deleteable,
     {
         let resource_name = T::get_table_definition().table_name.clone();
