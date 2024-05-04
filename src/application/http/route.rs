@@ -164,7 +164,13 @@ macro_rules! impl_method {
 }
 impl Route {
     impl_method!(get:Get);
-    impl_method!(post:Post);
+    pub fn post<F, I, O>(
+        self,
+        path: &str,
+        handler: impl IntoRouteHandler<F, I, O>,
+    ) -> Self {
+        self.with_handler(HttpMethod::Post, path, handler.into())
+    }
     impl_method!(delete:Delete);
     impl_method!(patch:Patch);
     impl_method!(get_public:Get, public);

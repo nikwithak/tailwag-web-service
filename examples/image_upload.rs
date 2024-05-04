@@ -87,11 +87,13 @@ impl FromRequest for Image {
     ) -> Result<Self, tailwag_web_service::Error> {
         let result = match req.body {
             tailwag_web_service::application::http::route::HttpBody::Multipart(parts) => {
-                parts.into_iter().find_map(Image::from_multipart_part)?
+                parts.into_iter().find_map(Image::from_multipart_part).ok_or(
+                    tailwag_web_service::Error::BadRequest("No image found in request.".into()),
+                )?
             },
             _ => todo!("Need to refactor FromRequest to return an error (for bad requests / etc)"),
         };
-        Ok(resul)
+        Ok(result)
     }
 }
 

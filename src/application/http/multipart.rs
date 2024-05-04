@@ -33,7 +33,7 @@ fn check_boundary(
     bytes: &Vec<u8>,
     boundary: &str,
 ) -> BoundaryMatch {
-    let is_boundary = bytes.len() >= boundary.len() + 4 // To avoid out of bounds panic. 4 = len("----") or len("--\r\n").
+    let is_boundary = bytes.len() >= boundary.len() + 4 // To avoid out of bounds panic. 4 = len("----") AND len("--\r\n"). It's a bit of a hack.
         && bytes[0..2] == *b"--" // Must start with --
         && bytes[2..boundary.len() + 2] == *boundary.as_bytes() // Check the boundary
     ;

@@ -205,7 +205,7 @@ impl WebServiceBuilder {
             // } else {
             //     None
             // }
-            format!("Path: {}", &req.path).into()
+            format!("TODO: Static Files. Hit Path: {}", &req.path).into()
         }
         self.get("/static", echo)
     }

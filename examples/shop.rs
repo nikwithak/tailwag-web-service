@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use stripe::{CheckoutSessionPaymentStatus, Event, EventObject};
-use tailwag_macros::{derive_magic, Display};
+use stripe::{CheckoutSessionPaymentStatus, Event, EventObject, StripeError};
+use tailwag_macros::Display;
 use tailwag_orm::{
     data_manager::{traits::DataProvider, PostgresDataProvider},
     queries::filterable_types::FilterEq,
@@ -38,38 +38,109 @@ mod tailwag {
     tailwag::macros::Display,
     tailwag::forms::macros::GetForm,
 )]
+#[create_type(CreateProductRequest)]
 #[post(create_product)]
 pub struct Product {
+    #[no_form]
     id: Uuid,
     name: String,
     description: String,
+    #[no_form]
     stripe_price_id: String,
+    price_usd_cents: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+/// Here is an example of overriding the CreateRequest type.
+/// In this example, we want to create the product with the Stripe API
+/// as a part of the create process, which we can't do without a custom type.
+///
+/// To accomplish this custom create implementation (Affecting the `POST` operation),
+/// we do three things:
+///
+/// 1. Define the type, making sure it is Serializable, Deserializeable, and Cloneable.
+/// 2. Implement Into<Product> (via a From<> impl)
+/// 3. Assign it as the create_request type with the #[create_type(CreateProductRequest)]
+///    attribute, in the #[derive(Insertable)] implementation.
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CreateProductRequest {
     name: String,
-    description: Option<String>,
+    description: String,
+    price_usd_cents: u64,
 }
 
+impl From<CreateProductRequest> for Product {
+    fn from(val: CreateProductRequest) -> Self {
+        Product {
+            id: uuid::Uuid::new_v4(),
+            name: val.name,
+            description: val.description,
+            stripe_price_id: "".to_owned(),
+            price_usd_cents: val.price_usd_cents as i64,
+        }
+    }
+}
+
+// TODO: Find a way to move this to the DataProvider. Using the standard From<> trait makes this not really work.
 pub async fn create_product(
     req: CreateProductRequest,
     products: PostgresDataProvider<Product>,
-) -> Product {
-    let stripe_price_id = create_stripe_product();
-    type ProductCreateRequest =
-        <PostgresDataProvider<Product> as DataProvider<Product>>::CreateRequest;
-    products
-        .create(ProductCreateRequest {
-            name: req.name,
-            description: req.description.unwrap_or_default(),
-            stripe_price_id,
-        })
-        .await
-        .unwrap()
+) -> Response {
+    let mut product = products.create(req).await.unwrap();
+    if create_stripe_product(&mut product).await.is_err() {
+        return Response::internal_server_error();
+    }
+    if products.update(&product).await.is_err() {
+        return Response::internal_server_error();
+    };
+    product.into_response()
 }
-fn create_stripe_product() -> String {
-    todo!()
+
+///  Creates a new product on Stripe. Requires the secret be configured.
+async fn create_stripe_product(product: &mut Product) -> Result<(), StripeError> {
+    // let stripe_client = stripe_client.lock().await;
+    // TODO: Should I store stripe_client as a Data obj?? Probably!!
+    let stripe_secret_key = std::env::var("STRIPE_API_KEY").expect("No secret key configured");
+    let stripe_client = stripe::Client::new(stripe_secret_key);
+    let id = product.id.to_string();
+
+    let stripe_product = stripe::CreateProduct {
+        active: Some(true),
+        description: None,
+        expand: &[],
+        id: Some(&id),
+        images: None,
+        // images: Some(Box::new(self.image_urls.clone())),
+        metadata: None,
+        name: product.name.as_str(),
+        package_dimensions: None,
+        shippable: Some(true),
+        statement_descriptor: None,
+        tax_code: None,
+        unit_label: None,
+        url: None,
+        default_price_data: Some(stripe::CreateProductDefaultPriceData {
+            currency: stripe::Currency::USD,
+            currency_options: None,
+            recurring: None,
+            tax_behavior: Some(stripe::CreateProductDefaultPriceDataTaxBehavior::Exclusive),
+            unit_amount: Some(product.price_usd_cents),
+            unit_amount_decimal: None,
+        }),
+        features: None,
+        type_: None,
+    };
+
+    let stripe_product = stripe::Product::create(&stripe_client, stripe_product).await?;
+
+    match &stripe_product.default_price {
+        Some(price) => {
+            product.stripe_price_id = price.id().to_string();
+            Ok(())
+        },
+        None => {
+            Err(stripe::StripeError::ClientError("Failed to create price at Stripe.".to_string()))
+        },
+    }
 }
 
 #[derive(
