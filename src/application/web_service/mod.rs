@@ -37,6 +37,7 @@ use crate::{
 use super::http::route::{HttpMethod, Request, Response};
 use super::middleware::cors::{self, inject_cors_headers, CorsMiddleware};
 use super::middleware::{Afterware, Beforeware, MiddlewareResult};
+use super::static_files::{load_static, StaticFiles};
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -196,18 +197,8 @@ impl WebServiceBuilder {
     }
 
     pub fn with_static_files(mut self) -> Self {
-        async fn echo(req: Request) -> Option<String> {
-            // value
-            // Hacky implementation
-            // let path = req.path.split('/');
-            // if path.pop().filter(|p| p).is_none() {
-            //     return None;
-            // } else {
-            //     None
-            // }
-            format!("TODO: Static Files. Hit Path: {}", &req.path).into()
-        }
-        self.get("/static", echo)
+        // TODO: Move this to its own module
+        self.get("/static/{path}", load_static)
     }
 
     pub fn with_resource<T>(mut self) -> Self

@@ -152,10 +152,10 @@ macro_rules! generate_trait_impl {
                 RouteHandler {
                     handler: Box::new(move |req, ctx| {
                         Box::pin(async move {
+                            let Ok(req) = I::from(req) else {
+                                return Response::bad_request();
+                            };
 
-                let Ok(req) = I::from(req) else {
-                    return Response::bad_request();
-                };
                             self(
                                 req, $($context_id::from(ctx.clone())),*)
                                 .await
@@ -261,6 +261,7 @@ where
         }
     }
 }
+
 pub struct RouteArgsRequestContextSync;
 impl<F, I, C, O> IntoRouteHandler<F, RouteArgsRequestContextSync, (C, I, O)> for F
 where

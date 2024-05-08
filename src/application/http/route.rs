@@ -582,6 +582,9 @@ impl ServerContext {
     }
 }
 
+// TODO: Wire this up (or find some way )
+// type RequestData = Arc<Mutex<TypeInstanceMap>>;
+
 #[derive(Deref)]
 pub struct RequestContext {
     #[deref]
@@ -612,6 +615,12 @@ impl RequestContext {
         t: T,
     ) {
         self.request_data.insert(t);
+    }
+}
+
+impl From<RequestContext> for ServerContext {
+    fn from(val: RequestContext) -> Self {
+        val.server_context.clone()
     }
 }
 

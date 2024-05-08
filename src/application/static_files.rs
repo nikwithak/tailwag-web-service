@@ -2,10 +2,10 @@ use std::{collections::HashMap, io::Read, path::Path};
 
 use templater::walk_dir::FileWalker;
 
-use super::http::route::Response;
+use super::http::route::{PathVar, Response};
 
 #[derive(Clone)]
-struct StaticFiles {
+pub struct StaticFiles {
     files: HashMap<String, Vec<u8>>,
 }
 
@@ -100,12 +100,13 @@ fn get_content_type(filename: &str) -> &'static str {
         .unwrap_or("application/octet-stream")
 }
 
-fn load_static(filename: &str) -> Response {
+pub fn load_static(filename: PathVar<String>) -> Response {
+    let filename = filename.0;
     let Ok(mut body) = std::fs::read(format!("static/{}", filename)) else {
         return Response::bad_request();
     };
     // TODO: DRY out to MimeType type
-    let mime_type = get_content_type(filename);
+    let mime_type = get_content_type(&filename);
 
     let mime_type = if mime_type == "text/markdown" {
         let mut rendered_html = String::new();
