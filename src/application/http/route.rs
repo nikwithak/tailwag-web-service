@@ -6,7 +6,7 @@ use std::{
     io::{BufRead, Read},
     ops::Deref,
     pin::Pin,
-    sync::{Arc},
+    sync::Arc,
 };
 use tailwag_macros::Deref;
 use tailwag_orm::{
@@ -94,9 +94,10 @@ impl Route {
     pub async fn handle(
         &self,
         mut request: Request,
-        context: &RequestContext,
+        context: RequestContext,
     ) -> Response {
         let path = &request.path;
+        let context = &context;
         let mut route = self;
 
         for segment in path.split('/').filter(|s| !s.is_empty()) {

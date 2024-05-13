@@ -1,7 +1,8 @@
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, pin::Pin, sync::Arc};
 
-use crate::application::http::{
-    route::{HttpMethod, Request, RequestContext, Response},
+use crate::application::{
+    http::route::{HttpMethod, Request, RequestContext, Response},
+    NextFn,
 };
 
 use super::{Beforeware, MiddlewareResult};
@@ -65,14 +66,6 @@ mod headers {
 }
 pub use headers::*;
 
-impl From<CorsMiddleware> for Beforeware {
-    fn from(val: CorsMiddleware) -> Self {
-        Self {
-            handle_request: Box::new(|req, ctx| Box::pin(async move { handle_cors(req, ctx) })),
-        }
-    }
-}
-
 /// Implements the CORS specification, as defined by the fetch spec.
 /// It is not currently fully compliant.
 /// Goal is "common case" with some flexibility
@@ -80,11 +73,12 @@ impl From<CorsMiddleware> for Beforeware {
 pub fn handle_cors(
     req: Request,
     mut ctx: RequestContext,
-) -> MiddlewareResult {
-    // TODO: Not the proper way to check, but "good enough" to unblock.
-    // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
-    if matches!(req.method, HttpMethod::Options) {
-        MiddlewareResult::Respond(
+    next: Arc<NextFn>,
+) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+    Box::pin(async move {
+        // TODO: Not the proper way to check, but "good enough" to unblock.
+        // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
+        if matches!(req.method, HttpMethod::Options) {
             Response::ok()
                 .with_header(
                     CorsHeader::AccessControlAllowOrigin.to_string(),
@@ -93,45 +87,26 @@ pub fn handle_cors(
                         .map_or("null".to_string(), |s| s.to_owned()),
                 )
                 .with_header(CorsHeader::AccessControlAllowCredentials, "true")
-                .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept"),
-        )
-    } else if req.headers.contains_key("origin") {
-        // Stash them for later - afterware will have to pull this
-        ctx.insert_request_data(CorsHeaders(
-            vec![
-                (
-                    CorsHeader::AccessControlAllowOrigin.to_string(),
-                    req.headers
-                        .get(&CorsHeader::Origin.to_string())
-                        .map_or("null".to_string(), |s| s.to_owned()),
-                ),
-                (CorsHeader::AccessControlAllowCredentials.to_string(), "true".to_string()),
-                (
+                .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept")
+        } else if req.headers.contains_key("origin") {
+            // Stash them for later - afterware will have to pull this
+            let origin = req
+                .headers
+                .get(&CorsHeader::Origin.to_string())
+                .map_or("null".to_string(), |s| s.to_owned());
+            next(req, ctx)
+                .await
+                .with_header(CorsHeader::AccessControlAllowOrigin.to_string(), origin)
+                .with_header(
+                    CorsHeader::AccessControlAllowCredentials.to_string(),
+                    "true".to_string(),
+                )
+                .with_header(
                     CorsHeader::AccessControlAllowHeaders.to_string(),
                     "origin, content-type, accept".to_string(),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ));
-        MiddlewareResult::Continue(req, ctx)
-    } else {
-        MiddlewareResult::Continue(req, ctx)
-    }
-}
-
-pub fn inject_cors_headers(
-    mut res: Response,
-    ctx: RequestContext,
-) -> Pin<Box<dyn std::future::Future<Output = (Response, RequestContext)>>> {
-    Box::pin(async move {
-        if let Some(cors_headers) =
-            ctx.get_request_data::<crate::application::middleware::cors::CorsHeaders>()
-        {
-            for (name, val) in &cors_headers.0 {
-                res = res.with_header(name.clone(), val.clone());
-            }
+                )
+        } else {
+            next(req, ctx).await
         }
-        (res, ctx)
     })
 }

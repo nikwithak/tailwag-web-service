@@ -46,15 +46,14 @@ pub enum ApplicationError {
     Error,
 }
 
-type Middleware = dyn 'static
-    + Fn(
-        Request,
-        RequestContext,
-        // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
-        Arc<NextFn>,
-    ) -> Pin<Box<dyn Future<Output = Response>>>;
+pub type Middleware = dyn Fn(
+    Request,
+    RequestContext,
+    // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
+    Arc<NextFn>,
+) -> Pin<Box<dyn Future<Output = Response>>>;
 // ttype NextFn = dyn 'static + n(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
-type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
+pub type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 
 // TODO: Separate definition from config
 #[derive(Debug)]
@@ -81,8 +80,9 @@ pub struct WebServiceInner {
     config: WebServiceConfig,
     middleware_before: Vec<Beforeware>,
     middleware_after: Vec<Afterware>,
-    _exp_consolidated_middleware: Arc<Middleware>, // TODO / IDEA: Maybe make this justa "RequestHandler" fn, instead of "handle request"?
-    routes: Route,
+    _exp_consolidated_middleware:
+        Arc<dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>>, // TODO / IDEA: Maybe make this justa "RequestHandler" fn, instead of "handle request"?
+    // routes: Arc<Route>,
     resources: UnconnectedDataSystem,
     server_data: Arc<TypeInstanceMap>,
     migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
@@ -147,8 +147,7 @@ impl Default for WebServiceBuilder {
         }
         .with_resource::<Account>()
         .with_resource::<Session>()
-        .with_before(cors::CorsMiddleware::default())
-        .with_afterware(cors::inject_cors_headers)
+        .with_middleware(cors::handle_cors)
     }
 }
 
@@ -354,29 +353,35 @@ impl WebServiceBuilder {
         let mut server_data = self.server_data;
         server_data.insert(self.task_executor.scheduler());
 
-        fn build_middleware(middleware: Vec<Arc<Middleware>>) -> Arc<Middleware> {
-            let mut consolidated_fn: Arc<Middleware> =
+        fn build_middleware(
+            routes: Route,
+            middleware: Vec<Arc<Middleware>>,
+        ) -> Arc<dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>>
+        {
+            let routes = Arc::new(routes);
+            let mut consolidated_fn: Arc<dyn Fn(
+                Request,
+                RequestContext,
+            ) -> Pin<Box<dyn Future<Output = Response>>>> =
                 // Just calls the request. This is our end state.
-                Arc::new(|req: Request, ctx: RequestContext, orig_req: Arc<NextFn>| {
-                    Box::pin(async move { orig_req(req, ctx).await })
+                Arc::new(move |req: Request, ctx: RequestContext| {
+                    // Box::pin(async move { orig_req(req, ctx).await })
+                    let routes = routes.clone();
+                    Box::pin(async move { routes.clone().handle(req, ctx).await })
                 });
 
             for mw_step in middleware.into_iter().rev() {
                 // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
-                consolidated_fn =
-                    Arc::new(move |req: Request, ctx: RequestContext, orig_req: Arc<NextFn>| {
-                        //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
-                        //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
-                        let next = consolidated_fn.clone();
-                        mw_step(
-                            req,
-                            ctx,
-                            Arc::new(move |req: Request, ctx: RequestContext| {
-                                next(req, ctx, orig_req.clone())
-                                // todo!()
-                            }),
-                        )
-                    });
+                consolidated_fn = Arc::new(move |req: Request, ctx: RequestContext| {
+                    //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
+                    //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
+                    let next = consolidated_fn.clone();
+                    mw_step(
+                        req,
+                        ctx,
+                        Arc::new(move |req: Request, ctx: RequestContext| next(req, ctx)),
+                    )
+                });
             }
             consolidated_fn
         } //
@@ -385,13 +390,16 @@ impl WebServiceBuilder {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
                 resources: self.resources.build(),
-                routes: self.root_route,
+                // routes: Arc::new(self.root_route),
                 migrations: Arc::new(Mutex::new(self.migrations)),
                 middleware_before: self.middleware_before,
                 middleware_after: self.middleware_after,
                 admin_rx,
                 server_data: Arc::new(server_data),
-                _exp_consolidated_middleware: build_middleware(self._exp_middleware),
+                _exp_consolidated_middleware: build_middleware(
+                    self.root_route,
+                    self._exp_middleware,
+                ),
             }),
             task_executor: Some(self.task_executor),
         };
@@ -482,7 +490,7 @@ impl WebService {
     }
 
     async fn start_service(
-        &self,
+        self,
         context: ServerContext,
     ) -> Result<RunResult, crate::Error> {
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
@@ -526,10 +534,9 @@ impl WebService {
         tasks_thread.map(|thread| thread.join());
         result
     }
-}
-impl WebServiceInner {
-    pub async fn handle_request(
-        &self,
+
+    pub async fn handle_request<'a>(
+        &'a self,
         mut stream: std::net::TcpStream,
         server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
@@ -565,14 +572,17 @@ impl WebServiceInner {
         /// Trying to fix a poor pattern I've ended up with that blocks some things becasue of ownership. At least without getting too heavily into
         /// lifetime ugliness
         // let response = route_handler(req, ctx).await;
-        // let response = (self._exp_consolidated_middleware)(req, todo!(), todo!());
-        let mut response = self.routes.handle(req, &ctx).await;
+        // let routes = self.routes.clone();
+        // let next = move |req, ctx| Box::pin(async move { routes.handle(req, ctx).await });
+        // let response = (self._exp_consolidated_middleware)(req, ctx, todo!("Arc::new(next)")).await;
+        let response = (self._exp_consolidated_middleware)(req, ctx).await;
+        // let mut response = ;
 
         // // POSTPROCESSIING
-        let afterware = self.middleware_after.iter();
-        for after_fn in afterware {
-            (response, ctx) = (after_fn.handle_request)(response, ctx).await;
-        }
+        // let afterware = self.middleware_after.iter();
+        // for after_fn in afterware {
+        //     (response, ctx) = (after_fn.handle_request)(response, ctx).await;
+        // }
 
         stream.write_all(&dbg!(response).as_bytes())?;
 

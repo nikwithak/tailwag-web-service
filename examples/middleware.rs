@@ -15,10 +15,19 @@ pub async fn main() {
                 };
                 println!("INSIDE MIDDLEWARE: Here's your request: {:?}", &req.body);
                 req.body = tailwag_web_service::application::http::route::HttpBody::Json(format!(
-                    "\"Your request was intercepted from the middleware. Original request: {:?}\"",
-                    &req.body,
+                    "\"Your request was intercepted from the middleware. \"",
+                    // &req.body,
                 ));
                 MiddlewareResult::Continue(req, ctx)
+            })
+        })
+        .with_middleware(|req, ctx, next| {
+            Box::pin(async move {
+                println!("MALCOLM IN THE MIDDLEWARE!");
+                println!("'ere's your request: {:?}", &req.body);
+                let res = next(req, ctx).await;
+                println!("Finished request");
+                res
             })
         })
         .post("echo", echo)
