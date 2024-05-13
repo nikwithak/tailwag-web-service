@@ -8,7 +8,7 @@ use std::{
 
 use chrono::NaiveDateTime;
 use futures::Future;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use uuid::Uuid;
 
 use crate::application::http::route::ServerContext;

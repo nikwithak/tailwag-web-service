@@ -10,7 +10,7 @@
 
 use std::pin::Pin;
 
-use crate::application::http::route::{IntoResponse, Request, RequestContext, Response};
+use crate::application::http::route::{RequestContext, Response};
 
 type AfterwareHandler = Box<
     dyn Send

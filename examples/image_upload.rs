@@ -1,6 +1,5 @@
 use std::{fmt::Display, str::FromStr};
 
-use serde::Serialize;
 use tailwag_web_service::application::{
     http::{
         headers::Headers,

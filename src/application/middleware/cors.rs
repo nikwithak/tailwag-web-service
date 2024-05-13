@@ -1,8 +1,7 @@
-use std::{collections::HashMap, fmt::Display, pin::Pin};
+use std::{collections::HashMap, pin::Pin};
 
 use crate::application::http::{
-    headers::Headers,
-    route::{HttpMethod, Request, RequestContext, Response, ServerContext},
+    route::{HttpMethod, Request, RequestContext, Response},
 };
 
 use super::{Beforeware, MiddlewareResult};
@@ -65,7 +64,6 @@ mod headers {
     }
 }
 pub use headers::*;
-use tailwag_macros::Deref;
 
 impl From<CorsMiddleware> for Beforeware {
     fn from(val: CorsMiddleware) -> Self {

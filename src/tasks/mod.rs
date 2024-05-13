@@ -1,22 +1,15 @@
 pub mod runner;
 use std::{
-    any::{Any, TypeId},
-    collections::{HashMap, VecDeque},
-    marker::PhantomData,
     sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
+        mpsc::{Sender},
     },
-    task,
 };
 
 use serde::Serialize;
-use sqlx::types::Json;
-use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 
 use crate::application::http::route::ServerContext;
 
-use self::runner::{TaskError, TaskRequest, TaskResult};
+use self::runner::{TaskError, TaskRequest};
 
 /// A manager for asynchronous tasks (worker tasks queued for processing,
 /// and returned a result through a callback)

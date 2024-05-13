@@ -467,7 +467,7 @@ pub async fn process_event(
     orders: impl DataProvider<ShopOrder>,
 ) -> Result<(), tailwag_web_service::Error> {
     let stripe::Event {
-        id,
+        
         type_,
         ..
     } = &event;

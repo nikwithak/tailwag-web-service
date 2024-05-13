@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::Display,
     io::{BufRead, BufReader},
     ops::DerefMut,
 };

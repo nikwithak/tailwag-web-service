@@ -1,13 +1,12 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
-    any::TypeId,
     collections::HashMap,
     fmt::Display,
     io::{BufRead, Read},
     ops::Deref,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 use tailwag_macros::Deref;
 use tailwag_orm::{
@@ -550,7 +549,7 @@ impl Response {
     pub fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(
-            format!("{} {}", (&self.http_version as &str), self.status.to_string()).as_bytes(),
+            format!("{} {}", (&self.http_version as &str), self.status).as_bytes(),
         );
         bytes.extend_from_slice(b"\r\n");
         for header in (&self.headers) as &HashMap<_, _> {

@@ -9,7 +9,7 @@ use crate::tasks::runner::{IntoTaskHandler, TaskExecutor};
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::postgres::{PgPoolOptions};
 use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
@@ -34,10 +34,10 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{HttpMethod, Request, Response};
-use super::middleware::cors::{self, inject_cors_headers, CorsMiddleware};
+use super::http::route::{Request, Response};
+use super::middleware::cors::{self};
 use super::middleware::{Afterware, Beforeware, MiddlewareResult};
-use super::static_files::{load_static, StaticFiles};
+use super::static_files::{load_static};
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -196,7 +196,7 @@ impl WebServiceBuilder {
         builder
     }
 
-    pub fn with_static_files(mut self) -> Self {
+    pub fn with_static_files(self) -> Self {
         // TODO: Move this to its own module
         self.get("/static/{path}", load_static)
     }

@@ -1,15 +1,12 @@
 use std::{
-    collections::HashMap,
     sync::{mpsc::Sender, Arc, OnceLock},
     thread::sleep,
     time::Duration,
 };
 
-use tailwag_macros::derive_magic;
 use tailwag_orm::queries::Insertable;
 use tailwag_web_service::{
     application::{AdminActions, WebService, WebServiceBuildResponse},
-    auth::gateway,
 };
 
 mod tailwag {

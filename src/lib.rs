@@ -1,4 +1,3 @@
-use std::sync::PoisonError;
 
 pub mod application;
 pub mod auth;

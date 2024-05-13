@@ -167,7 +167,7 @@ macro_rules! generate_trait_impl {
         }
 
         impl<F, I, $($context_id,)* O>
-            IntoRouteHandler<F, ($($context_id,)*), (($($context_id),*), I, (O))> for F
+            IntoRouteHandler<F, ($($context_id,)*), (($($context_id),*), I, O)> for F
         where
             F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
