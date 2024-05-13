@@ -9,7 +9,7 @@ use crate::tasks::runner::{IntoTaskHandler, TaskExecutor};
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgPoolOptions};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
@@ -37,7 +37,7 @@ use crate::{
 use super::http::route::{Request, Response};
 use super::middleware::cors::{self};
 use super::middleware::{Afterware, Beforeware, MiddlewareResult};
-use super::static_files::{load_static};
+use super::static_files::load_static;
 use super::{http::route::Route, stats::RunResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -45,6 +45,16 @@ pub enum ApplicationError {
     #[error("Something went wrong.")]
     Error,
 }
+
+type Middleware = dyn 'static
+    + Fn(
+        Request,
+        RequestContext,
+        // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
+        Arc<NextFn>,
+    ) -> Pin<Box<dyn Future<Output = Response>>>;
+// ttype NextFn = dyn 'static + n(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
+type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 
 // TODO: Separate definition from config
 #[derive(Debug)]
@@ -71,6 +81,7 @@ pub struct WebServiceInner {
     config: WebServiceConfig,
     middleware_before: Vec<Beforeware>,
     middleware_after: Vec<Afterware>,
+    _exp_consolidated_middleware: Arc<Middleware>, // TODO / IDEA: Maybe make this justa "RequestHandler" fn, instead of "handle request"?
     routes: Route,
     resources: UnconnectedDataSystem,
     server_data: Arc<TypeInstanceMap>,
@@ -102,6 +113,7 @@ pub struct WebServiceBuilder {
     forms: HashMap<Identifier, Form>,
     middleware_before: Vec<Beforeware>,
     middleware_after: Vec<Afterware>,
+    _exp_middleware: Vec<Arc<Middleware>>,
     resources: DataSystemBuilder,
     server_data: TypeInstanceMap,
     task_executor: TaskExecutor,
@@ -131,6 +143,7 @@ impl Default for WebServiceBuilder {
             forms: HashMap::new(),
             server_data: Default::default(),
             task_executor: Default::default(),
+            _exp_middleware: Vec::new(),
         }
         .with_resource::<Account>()
         .with_resource::<Session>()
@@ -268,6 +281,20 @@ impl WebServiceBuilder {
         self
     }
 
+    pub fn with_middleware(
+        mut self,
+        func: impl 'static
+            + Fn(
+                Request,
+                RequestContext,
+                // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
+                Arc<NextFn>,
+            ) -> Pin<Box<dyn Future<Output = Response>>>,
+    ) -> Self {
+        self._exp_middleware.push(Arc::new(func));
+        self
+    }
+
     pub fn with_beforeware(
         mut self,
         // TODO: Go the route I went with RouteHandler, to automagic some type conversion
@@ -326,6 +353,34 @@ impl WebServiceBuilder {
         // let WebServiceBuilder { config, root_route, migrations, forms, middleware_before, middleware_after, resources, server_data, task_executor } = self;
         let mut server_data = self.server_data;
         server_data.insert(self.task_executor.scheduler());
+
+        fn build_middleware(middleware: Vec<Arc<Middleware>>) -> Arc<Middleware> {
+            let mut consolidated_fn: Arc<Middleware> =
+                // Just calls the request. This is our end state.
+                Arc::new(|req: Request, ctx: RequestContext, orig_req: Arc<NextFn>| {
+                    Box::pin(async move { orig_req(req, ctx).await })
+                });
+
+            for mw_step in middleware.into_iter().rev() {
+                // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
+                consolidated_fn =
+                    Arc::new(move |req: Request, ctx: RequestContext, orig_req: Arc<NextFn>| {
+                        //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
+                        //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
+                        let next = consolidated_fn.clone();
+                        mw_step(
+                            req,
+                            ctx,
+                            Arc::new(move |req: Request, ctx: RequestContext| {
+                                next(req, ctx, orig_req.clone())
+                                // todo!()
+                            }),
+                        )
+                    });
+            }
+            consolidated_fn
+        } //
+
         let service = WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
@@ -336,6 +391,7 @@ impl WebServiceBuilder {
                 middleware_after: self.middleware_after,
                 admin_rx,
                 server_data: Arc::new(server_data),
+                _exp_consolidated_middleware: build_middleware(self._exp_middleware),
             }),
             task_executor: Some(self.task_executor),
         };
@@ -504,7 +560,12 @@ impl WebServiceInner {
             }
         }
 
+        //// CURRENT TASK: Trying again with Middleware functions.
+        /// We want to call each middleware function with the inner routehandler, so that the middleware itself can wrap the request.
+        /// Trying to fix a poor pattern I've ended up with that blocks some things becasue of ownership. At least without getting too heavily into
+        /// lifetime ugliness
         // let response = route_handler(req, ctx).await;
+        // let response = (self._exp_consolidated_middleware)(req, todo!(), todo!());
         let mut response = self.routes.handle(req, &ctx).await;
 
         // // POSTPROCESSIING

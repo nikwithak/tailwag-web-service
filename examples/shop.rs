@@ -212,7 +212,7 @@ pub async fn stripe_event(
     log::debug!("[STRIPE] Received event id: {event_id}");
 
     /// Send the event to our event processor.
-    /// TODO: This can be one line if I just add '?' support to Response / IntoResponse
+    /// TODO [TECH DEBT]: This can be one line if I just figure out how to add '?' support to Response / IntoResponse
     let Ok(ticket) = task_queuer.enqueue(ProcessStripeEvent {
         event,
     }) else {
@@ -467,7 +467,6 @@ pub async fn process_event(
     orders: impl DataProvider<ShopOrder>,
 ) -> Result<(), tailwag_web_service::Error> {
     let stripe::Event {
-        
         type_,
         ..
     } = &event;
