@@ -72,7 +72,7 @@ pub use headers::*;
 /// ref: https://fetch.spec.whatwg.org/#cors-protocol
 pub fn handle_cors(
     req: Request,
-    mut ctx: RequestContext,
+    ctx: RequestContext,
     next: Arc<NextFn>,
 ) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
     Box::pin(async move {

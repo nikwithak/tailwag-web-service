@@ -7,7 +7,7 @@ use tailwag_orm::{
 };
 use tailwag_web_service::{
     application::http::route::{IntoResponse, Request, Response, ServerData},
-    auth::gateway,
+    auth::gateway::{self, authorize_request},
     tasks::TaskScheduler,
 };
 use uuid::Uuid;
@@ -485,7 +485,7 @@ pub async fn process_event(
 #[tokio::main]
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Events Service")
-        // .with_before(gateway::AuthorizationGateway)
+        // .with_middleware(authorize_request)
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
         .with_resource::<Product>() // TODO- public GET with filtering)

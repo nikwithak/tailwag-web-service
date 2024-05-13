@@ -272,14 +272,6 @@ impl WebServiceBuilder {
         self
     }
 
-    pub fn with_before<F: Into<Beforeware>>(
-        mut self,
-        middleware: F,
-    ) -> Self {
-        self.middleware_before.push(middleware.into());
-        self
-    }
-
     pub fn with_middleware(
         mut self,
         func: impl 'static
@@ -291,51 +283,6 @@ impl WebServiceBuilder {
             ) -> Pin<Box<dyn Future<Output = Response>>>,
     ) -> Self {
         self._exp_middleware.push(Arc::new(func));
-        self
-    }
-
-    pub fn with_beforeware(
-        mut self,
-        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
-        func: impl Fn(
-                Request,
-                RequestContext,
-                // Box<dyn FnOnce(Request, Context) -> Response>,
-            ) -> Pin<Box<dyn Future<Output = MiddlewareResult>>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> Self {
-        // TODO+ Send + SPin<Box<tatic
-        // + + Send + Sync + 'static
-        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
-        let middleware = Beforeware {
-            handle_request: Box::new(func),
-        };
-        self.middleware_before.push(middleware);
-
-        self
-    }
-
-    pub fn with_afterware(
-        mut self,
-        // TODO: Go the route I went with RouteHandler, to automagic some type conversion
-        func: impl Fn(
-                Response,
-                RequestContext,
-            ) -> Pin<Box<dyn Future<Output = (Response, RequestContext)>>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> Self {
-        // TODO+ Send + SPin<Box<tatic
-        // + + Send + Sync + 'static
-        // 1. Middleware is a function. It is essentially just a Handler that calls the next handler
-        let afterware = Afterware {
-            handle_request: Box::new(func),
-        };
-        self.middleware_after.push(afterware);
-
         self
     }
 
@@ -390,7 +337,7 @@ impl WebServiceBuilder {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
                 resources: self.resources.build(),
-                // routes: Arc::new(self.root_route),
+                // routes: Arc::new(self.root_route), // No longer stored in Webservice - it's now moved to Middleware when running.
                 migrations: Arc::new(Mutex::new(self.migrations)),
                 middleware_before: self.middleware_before,
                 middleware_after: self.middleware_after,

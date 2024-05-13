@@ -1,27 +1,15 @@
+use std::sync::Arc;
+
 use tailwag_web_service::application::{
-    http::route::{HttpBody, Response},
+    http::route::{HttpBody, Request, RequestContext, Response},
     middleware::MiddlewareResult,
-    WebService,
+    NextFn, WebService,
 };
 
 #[tokio::main]
 pub async fn main() {
     WebService::builder("Middleware Example Service")
-        // .get("/", |image: Image| "Testing")
-        .with_beforeware(|mut req, ctx| {
-            Box::pin(async move {
-                let HttpBody::Json(_body) = &req.body else {
-                    return MiddlewareResult::Respond(Response::not_found());
-                };
-                println!("INSIDE MIDDLEWARE: Here's your request: {:?}", &req.body);
-                req.body = tailwag_web_service::application::http::route::HttpBody::Json(format!(
-                    "\"Your request was intercepted from the middleware. \"",
-                    // &req.body,
-                ));
-                MiddlewareResult::Continue(req, ctx)
-            })
-        })
-        .with_middleware(|req, ctx, next| {
+        .with_middleware(|req: Request, ctx: RequestContext, next: Arc<NextFn>| {
             Box::pin(async move {
                 println!("MALCOLM IN THE MIDDLEWARE!");
                 println!("'ere's your request: {:?}", &req.body);

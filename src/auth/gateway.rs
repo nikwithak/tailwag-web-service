@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq,
@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::application::{
     http::route::{Request, RequestContext, Response},
     middleware::{Beforeware, MiddlewareResult},
+    NextFn,
 };
 
 const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
@@ -95,28 +96,14 @@ struct JwtClaims {
     exp: usize,
 }
 
-// TODO: DRY this out for generic functions, following the Handler pattern.
-impl From<AuthorizationGateway> for Beforeware {
-    fn from(val: AuthorizationGateway) -> Self {
-        Beforeware {
-            handle_request: Box::new(|req, res| {
-                Box::pin(
-                    async move { AuthorizationGateway::add_session_to_request(req, res).await },
-                )
-            }),
-        }
-    }
-}
-
-impl AuthorizationGateway {
-    // TODO: Clean this up. Looks a bit too complex / a few different things going on
-    pub async fn add_session_to_request(
-        request: Request,
-        mut context: RequestContext,
-        // sessions: PostgresDataProvider<Session>,
-    ) -> MiddlewareResult {
+pub fn authorize_request(
+    request: Request,
+    mut context: RequestContext,
+    next: Arc<NextFn>,
+) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+    Box::pin(async move {
         let Some(sessions) = context.get::<Session>() else {
-            return Response::internal_server_error().into();
+            return Response::internal_server_error();
         };
         // First, log request:
         // TODO: Middleware this somewhere else, inject Request ID, etc.
@@ -147,11 +134,11 @@ impl AuthorizationGateway {
         // Expose through Context, maybe, so that we can check the authz policy of the
         // destination route?
         if ["/login", "/register"].contains(&request.path.as_str()) {
-            return MiddlewareResult::Continue(request, context);
+            return next(request, context).await;
         }
 
         let Some(authz_token) = extract_authz_token(&request) else {
-            return Response::unauthorized().into();
+            return Response::unauthorized();
         };
 
         let decoded_jwt = match jsonwebtoken::decode::<JwtClaims>(
@@ -162,7 +149,7 @@ impl AuthorizationGateway {
             Ok(jwt) => jwt,
             Err(e) => {
                 println!("error: {}", e);
-                return MiddlewareResult::Respond(Response::unauthorized());
+                return Response::unauthorized();
             },
         };
         let JwtClaims {
@@ -176,15 +163,15 @@ impl AuthorizationGateway {
                 log::debug!("Adding session to RequestContext");
                 context.insert_request_data(session);
 
-                MiddlewareResult::Continue(request, context)
+                next(request, context).await
             },
-            Ok(None) => MiddlewareResult::Respond(Response::unauthorized()),
+            Ok(None) => Response::unauthorized(),
             Err(e) => {
                 log::error!("An error occurred while authorizing the account: {:?}", e);
-                MiddlewareResult::Respond(Response::unauthorized())
+                Response::unauthorized()
             },
         }
-    }
+    })
 }
 
 // The actual middleware function

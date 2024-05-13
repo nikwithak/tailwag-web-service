@@ -1,5 +1,8 @@
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
-use tailwag_web_service::{application::http::route::Response, auth::gateway};
+use tailwag_web_service::{
+    application::http::route::Response,
+    auth::gateway::{self, authorize_request},
+};
 use uuid::Uuid;
 
 mod tailwag {
@@ -40,7 +43,7 @@ pub struct Event {
 #[tokio::main]
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Events Service")
-        .with_before(gateway::AuthorizationGateway)
+        .with_middleware(authorize_request)
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
         .with_resource::<Event>()
