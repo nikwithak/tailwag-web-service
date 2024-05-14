@@ -97,7 +97,6 @@ impl Route {
         context: RequestContext,
     ) -> Response {
         let path = &request.path;
-        let context = &context;
         let mut route = self;
 
         for segment in path.split('/').filter(|s| !s.is_empty()) {
@@ -117,7 +116,7 @@ impl Route {
 
         if let Some(future) = route.handlers.get(&request.method) {
             //TODO: Verify policy
-            if is_authorized(&future._policy, context) {
+            if is_authorized(&future._policy, &context) {
                 future.call(request, context).await
             } else {
                 Response::default()
@@ -334,7 +333,7 @@ type RouteHandlerInner = Box<
         + 'static
         + Fn(
             Request,
-            ServerContext,
+            RequestContext,
         ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
 >;
 pub struct RouteHandler {
@@ -344,9 +343,9 @@ impl RouteHandler {
     pub async fn call(
         &self,
         request: Request,
-        context: &RequestContext,
+        context: RequestContext,
     ) -> Response {
-        (self.handler)(request, context.into()).await
+        (self.handler)(request, context).await
     }
 }
 

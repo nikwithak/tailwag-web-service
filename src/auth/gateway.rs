@@ -71,7 +71,7 @@ impl tailwag::orm::data_manager::rest_api::Id for Account {
 )]
 pub struct Session {
     id: uuid::Uuid,
-    account_id: uuid::Uuid,
+    pub account_id: uuid::Uuid,
     start_time: chrono::NaiveDateTime,
     expiry_time: chrono::NaiveDateTime,
 }
