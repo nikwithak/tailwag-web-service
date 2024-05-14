@@ -25,7 +25,7 @@ enum MultipartParserState {
 #[derive(Default)]
 struct MultipartParser {
     parts: Vec<MultipartPart>,
-    boundary: String,
+    // boundary: String,
     state: MultipartParserState,
 }
 

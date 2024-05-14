@@ -16,7 +16,6 @@ use uuid::Uuid;
 
 use crate::application::{
     http::route::{Request, RequestContext, Response},
-    middleware::{Beforeware, MiddlewareResult},
     NextFn,
 };
 

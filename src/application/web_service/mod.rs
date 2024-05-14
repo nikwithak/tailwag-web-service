@@ -36,7 +36,6 @@ use crate::{
 
 use super::http::route::{Request, Response};
 use super::middleware::cors::{self};
-use super::middleware::{Afterware, Beforeware, MiddlewareResult};
 use super::static_files::load_static;
 use super::{http::route::Route, stats::RunResult};
 
@@ -78,9 +77,7 @@ pub enum AdminActions {
 #[allow(private_bounds)]
 pub struct WebServiceInner {
     config: WebServiceConfig,
-    middleware_before: Vec<Beforeware>,
-    middleware_after: Vec<Afterware>,
-    _exp_consolidated_middleware:
+    consolidated_handler:
         Arc<dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>>, // TODO / IDEA: Maybe make this justa "RequestHandler" fn, instead of "handle request"?
     // routes: Arc<Route>,
     resources: UnconnectedDataSystem,
@@ -111,8 +108,6 @@ pub struct WebServiceBuilder {
     root_route: Route,
     migrations: MigrationRunners,
     forms: HashMap<Identifier, Form>,
-    middleware_before: Vec<Beforeware>,
-    middleware_after: Vec<Afterware>,
     _exp_middleware: Vec<Arc<Middleware>>,
     resources: DataSystemBuilder,
     server_data: TypeInstanceMap,
@@ -136,8 +131,6 @@ impl Default for WebServiceBuilder {
                 request_timeout_seconds: 30,
             },
             resources: DataSystem::builder(),
-            middleware_before: Vec::new(),
-            middleware_after: Vec::new(),
             migrations: Vec::new(),
             root_route: Route::default(),
             forms: HashMap::new(),
@@ -339,14 +332,9 @@ impl WebServiceBuilder {
                 resources: self.resources.build(),
                 // routes: Arc::new(self.root_route), // No longer stored in Webservice - it's now moved to Middleware when running.
                 migrations: Arc::new(Mutex::new(self.migrations)),
-                middleware_before: self.middleware_before,
-                middleware_after: self.middleware_after,
                 admin_rx,
                 server_data: Arc::new(server_data),
-                _exp_consolidated_middleware: build_middleware(
-                    self.root_route,
-                    self._exp_middleware,
-                ),
+                consolidated_handler: build_middleware(self.root_route, self._exp_middleware),
             }),
             task_executor: Some(self.task_executor),
         };
@@ -498,38 +486,7 @@ impl WebService {
         let context =
             time_exec!("Build Context", RequestContext::from_server_context(server_context));
 
-        // PREPROCESSING
-        let before_ware = self.middleware_before.iter();
-        let (mut req, mut ctx) = (request, context);
-        for middleware in before_ware {
-            match (middleware.handle_request)(req, ctx).await {
-                MiddlewareResult::Continue(new_req, new_ctx) => {
-                    req = new_req;
-                    ctx = new_ctx;
-                },
-                MiddlewareResult::Respond(res) => {
-                    stream.write_all(&dbg!(res).as_bytes())?;
-                    return Ok(());
-                },
-            }
-        }
-
-        //// CURRENT TASK: Trying again with Middleware functions.
-        /// We want to call each middleware function with the inner routehandler, so that the middleware itself can wrap the request.
-        /// Trying to fix a poor pattern I've ended up with that blocks some things becasue of ownership. At least without getting too heavily into
-        /// lifetime ugliness
-        // let response = route_handler(req, ctx).await;
-        // let routes = self.routes.clone();
-        // let next = move |req, ctx| Box::pin(async move { routes.handle(req, ctx).await });
-        // let response = (self._exp_consolidated_middleware)(req, ctx, todo!("Arc::new(next)")).await;
-        let response = (self._exp_consolidated_middleware)(req, ctx).await;
-        // let mut response = ;
-
-        // // POSTPROCESSIING
-        // let afterware = self.middleware_after.iter();
-        // for after_fn in afterware {
-        //     (response, ctx) = (after_fn.handle_request)(response, ctx).await;
-        // }
+        let response = (self.consolidated_handler)(request, context).await;
 
         stream.write_all(&dbg!(response).as_bytes())?;
 

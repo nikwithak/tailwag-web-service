@@ -8,7 +8,7 @@ use std::{
 
 use chrono::NaiveDateTime;
 use futures::Future;
-use serde::{Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::application::http::route::ServerContext;
@@ -34,6 +34,7 @@ impl<T: ToString> From<T> for TaskError {
 // TODO: Move this to the DB for persistence. Need to do some better type/ignore mapping in the ORM first.
 pub struct TaskRequest {
     id: uuid::Uuid,
+    #[allow(unused)]
     create_date: NaiveDateTime,
     // status: TaskStatus,
     type_id: TypeId,
@@ -145,7 +146,7 @@ where
     Fut: std::future::Future<Output = O> + 'static + Send,
 {
     fn into(self) -> TaskHandler {
-        Box::new(move |req, ctx: ServerContext| {
+        Box::new(move |req, _ctx: ServerContext| {
             Box::pin(async move { self(Req::from(req)).await.into() })
         })
     }
@@ -198,6 +199,7 @@ mod from_to_impl {
 pub use from_to_impl::*;
 
 enum Signal {
+    #[allow(unused)]
     Kill,
 }
 

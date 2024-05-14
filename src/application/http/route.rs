@@ -29,6 +29,7 @@ pub type RoutePath = String;
 
 enum RoutePolicy {
     Public,
+    #[allow(unused)]
     Protected,
 }
 
@@ -63,6 +64,7 @@ impl PoliciedRouteHandler {
             _policy: RoutePolicy::Public,
         }
     }
+    #[allow(unused)]
     pub fn protected(handler: RouteHandler) -> Self {
         Self {
             handler: Box::new(handler),
@@ -133,7 +135,7 @@ fn is_authorized(
 ) -> bool {
     match policy {
         RoutePolicy::Public => true, // Always allow public routes
-        RoutePolicy::Protected => ctx.get_request_data::<Session>().map_or(false, |session| {
+        RoutePolicy::Protected => ctx.get_request_data::<Session>().map_or(false, |_session| {
             // TODO: For now we just look to see if the session exists. Need to add better validation.
             // THIS IS NOT WELL-TESTED
             true

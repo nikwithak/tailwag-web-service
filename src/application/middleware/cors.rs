@@ -5,14 +5,13 @@ use crate::application::{
     NextFn,
 };
 
-use super::{Beforeware, MiddlewareResult};
-
 #[derive(Default)]
 pub struct CorsMiddleware {
-    policy: CorsPolicy,
+    _policy: CorsPolicy,
 }
 
 #[derive(Default)]
+#[allow(unused)]
 enum CorsPolicy {
     Wildcard,
     #[default]

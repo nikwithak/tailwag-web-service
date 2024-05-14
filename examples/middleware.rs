@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use tailwag_web_service::application::{
-    http::route::{HttpBody, Request, RequestContext, Response},
-    middleware::MiddlewareResult,
+    http::route::{Request, RequestContext},
     NextFn, WebService,
 };
 

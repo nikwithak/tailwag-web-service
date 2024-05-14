@@ -140,7 +140,7 @@ where
 macro_rules! generate_trait_impl {
     (R1, $($context_id:ident),*) => {
         impl<F, I, $($context_id,)* O, Fut>
-            IntoRouteHandler<F, (Fut, $($context_id,)* RequestContext), (($($context_id),*), I, (O, Fut))> for F
+            IntoRouteHandler<F, (Fut, $($context_id,)* RequestContext), ($($context_id),*, I, (O, Fut))> for F
         where
             F: Fn(I, $($context_id,)* RequestContext) -> Fut + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
@@ -167,7 +167,7 @@ macro_rules! generate_trait_impl {
         }
 
         impl<F, I, $($context_id,)* O>
-            IntoRouteHandler<F, ($($context_id,)* RequestContext), (($($context_id),*), I, O)> for F
+            IntoRouteHandler<F, ($($context_id,)* RequestContext), ($($context_id,)* I, O)> for F
         where
             F: Fn(I, $($context_id),*, RequestContext) -> O + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
@@ -191,7 +191,7 @@ macro_rules! generate_trait_impl {
         }
 
         impl<F, I, $($context_id,)* O, Fut>
-            IntoRouteHandler<F, (Fut, $($context_id,)*), (($($context_id),*), I, (O, Fut))> for F
+            IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, Fut))> for F
         where
             F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
@@ -218,7 +218,7 @@ macro_rules! generate_trait_impl {
         }
 
         impl<F, I, $($context_id,)* O>
-            IntoRouteHandler<F, ($($context_id,)*), (($($context_id),*), I, O)> for F
+            IntoRouteHandler<F, ($($context_id,)*), ($($context_id,)* I, O)> for F
         where
             F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
@@ -248,92 +248,6 @@ generate_trait_impl!(R1, C1, C2);
 generate_trait_impl!(R1, C1, C2, C3);
 generate_trait_impl!(R1, C1, C2, C3, C4);
 generate_trait_impl!(R1, C1, C2, C3, C4, C5);
-
-// pub struct RouteArgsOneRequestTwoContextAsync;
-// impl<F, I, C, C2, O, Fut>
-//     IntoRouteHandler<F, RouteArgsOneRequestTwoContextAsync, ((C, C2), I, (O, Fut))> for F
-// where
-//     F: Fn(I, C, C2) -> Fut + Send + Copy + 'static + Sync,
-//     I: FromRequest + Sized + 'static,
-//     C: From<ServerContext> + Sized + 'static,
-//     C2: From<ServerContext> + Sized + 'static,
-//     O: IntoResponse + Sized + Send + 'static,
-//     Fut: Future<Output = O> + 'static + Send,
-// {
-//     fn into(self) -> RouteHandler {
-//         RouteHandler {
-//             handler: Box::new(move |req, ctx| {
-//                 Box::pin(async move {
-//                     self(I::from(req), C::from(ctx.clone()), C2::from(ctx)).await.into_response()
-//                 })
-//             }),
-//         }
-//     }
-// }
-// pub struct RouteArgsOneRequestTwoContextSync;
-// impl<F, I, C, C2, O> IntoRouteHandler<F, RouteArgsOneRequestTwoContextSync, ((C, C2), I, O)> for F
-// where
-//     F: Send + Copy + 'static + Sync + Fn(I, C, C2) -> O,
-//     I: FromRequest + Sized + 'static,
-//     C: From<ServerContext> + Sized + 'static,
-//     C2: From<ServerContext> + Sized + 'static,
-//     O: IntoResponse + Sized + Send + 'static,
-// {
-//     fn into(self) -> RouteHandler {
-//         RouteHandler {
-//             handler: Box::new(move |req, ctx| {
-//                 Box::pin(async move {
-//                     self(I::from(req), C::from(ctx.clone()), C2::from(ctx)).into_response()
-//                 })
-//             }),
-//         }
-//     }
-// }
-
-// pub struct RouteArgsRequestContextAsync;
-// impl<F, I, C, O, Fut> IntoRouteHandler<F, RouteArgsRequestContextAsync, (C, I, (O, Fut))> for F
-// where
-//     F: Fn(I, C) -> Fut + Send + Copy + 'static + Sync,
-//     I: FromRequest + Sized + 'static,
-//     C: From<ServerContext> + Sized + 'static,
-//     O: IntoResponse + Sized + Send + 'static,
-//     Fut: Future<Output = O> + 'static + Send,
-// {
-//     fn into(self) -> RouteHandler {
-//         RouteHandler {
-//             handler: Box::new(move |req, ctx| {
-//                 Box::pin(async move {
-//                     let Ok(req) = I::from(req) else {
-//                         return Response::bad_request();
-//                     };
-//                     self(req, C::from(ctx.clone())).await.into_response()
-//                 })
-//             }),
-//         }
-//     }
-// }
-
-// pub struct RouteArgsRequestContextSync;
-// impl<F, I, C, O> IntoRouteHandler<F, RouteArgsRequestContextSync, (C, I, O)> for F
-// where
-//     F: Send + Copy + 'static + Sync + Fn(I, C) -> O,
-//     I: FromRequest + Sized + 'static,
-//     C: From<ServerContext> + Sized + 'static,
-//     O: IntoResponse + Sized + Send + 'static,
-// {
-//     fn into(self) -> RouteHandler {
-//         RouteHandler {
-//             handler: Box::new(move |req, ctx| {
-//                 Box::pin(async move {
-//                     let Ok(req) = I::from(req) else {
-//                         return Response::bad_request();
-//                     };
-//                     self(req, C::from(ctx.clone())).into_response()
-//                 })
-//             }),
-//         }
-//     }
-// }
 
 pub struct Nothing3Async;
 impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F

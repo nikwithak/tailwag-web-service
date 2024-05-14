@@ -1,9 +1,5 @@
 pub mod runner;
-use std::{
-    sync::{
-        mpsc::{Sender},
-    },
-};
+use std::sync::mpsc::Sender;
 
 use serde::Serialize;
 
@@ -27,6 +23,7 @@ pub trait Task<T> {
     fn run(input: Self::Input) -> Self::Output;
 }
 
+#[allow(unused)]
 struct Worker<T> {
     task: T,
 }
@@ -38,6 +35,7 @@ pub struct Ticket {
 }
 
 impl Ticket {
+    #[allow(unused)]
     fn new() -> Self {
         Self {
             id: uuid::Uuid::new_v4(),
@@ -48,6 +46,7 @@ impl Ticket {
     }
 }
 
+#[allow(unused)]
 enum ScheduleError {
     UnknownTask,
     BadRequest,

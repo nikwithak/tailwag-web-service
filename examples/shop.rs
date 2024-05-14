@@ -7,7 +7,7 @@ use tailwag_orm::{
 };
 use tailwag_web_service::{
     application::http::route::{IntoResponse, Request, Response, ServerData},
-    auth::gateway::{self, authorize_request},
+    auth::gateway::{self},
     tasks::TaskScheduler,
 };
 use uuid::Uuid;
@@ -194,7 +194,7 @@ pub async fn stripe_event(
     webhook_secret: ServerData<StripeSecret>,
     mut task_queuer: TaskScheduler,
 ) -> impl IntoResponse {
-    /// Verify / Decode the stripe event
+    // Verify / Decode the stripe event
     let Some(stripe_signature) = request.headers.get("stripe-signature").cloned() else {
         return Response::not_found();
     };
@@ -211,8 +211,8 @@ pub async fn stripe_event(
     let event_id = event.id.clone();
     log::debug!("[STRIPE] Received event id: {event_id}");
 
-    /// Send the event to our event processor.
-    /// TODO [TECH DEBT]: This can be one line if I just figure out how to add '?' support to Response / IntoResponse
+    // Send the event to our event processor.
+    // TODO [TECH DEBT]: This can be one line if I just figure out how to add '?' support to Response / IntoResponse
     let Ok(ticket) = task_queuer.enqueue(ProcessStripeEvent {
         event,
     }) else {
@@ -349,7 +349,7 @@ pub async fn handle_stripe_event(
     orders: PostgresDataProvider<ShopOrder>,
 ) -> String {
     log::info!("[STRIPE] Received event in task queue: {:?}", event);
-    process_event(&event.event, orders).await;
+    process_event(&event.event, orders).await.unwrap();
     "Finished.".to_string()
 }
 

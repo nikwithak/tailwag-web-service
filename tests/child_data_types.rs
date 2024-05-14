@@ -4,10 +4,7 @@ use std::{
     time::Duration,
 };
 
-use tailwag_orm::queries::Insertable;
-use tailwag_web_service::{
-    application::{AdminActions, WebService, WebServiceBuildResponse},
-};
+use tailwag_web_service::application::{AdminActions, WebService, WebServiceBuildResponse};
 
 mod tailwag {
     pub use tailwag_forms as forms;
@@ -77,6 +74,7 @@ async fn run_service(sender_cell: Arc<KillSignalCell>) {
     service.run().await.unwrap();
 }
 
+#[allow(unused)]
 macro_rules! test_hurl_file {
     ($filename:literal) => {
         let result = hurl::runner::run(

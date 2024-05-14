@@ -1,6 +1,6 @@
 use tailwag_web_service::{
     application::WebService,
-    auth::gateway::{authorize_request, login, register, AuthorizationGateway},
+    auth::gateway::{authorize_request, login, register},
     Error,
 };
 
