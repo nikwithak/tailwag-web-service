@@ -230,7 +230,7 @@ pub async fn login(
         &Default::default(),
         &JwtClaims {
             session_id: new_session.id,
-            exp: new_session.expiry_time.timestamp() as usize,
+            exp: new_session.expiry_time.and_utc().timestamp() as usize,
         },
         &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET.as_ref()),
     )
