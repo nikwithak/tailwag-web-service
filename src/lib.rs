@@ -4,6 +4,7 @@ pub mod application;
 pub mod auth;
 mod components;
 pub mod errors;
+pub mod extras;
 pub mod tasks;
 pub mod traits;
 
