@@ -54,6 +54,7 @@ impl Display for ImageMimeType {
         })
     }
 }
+
 impl FromStr for ImageMimeType {
     type Err = String;
 
@@ -91,7 +92,9 @@ impl FromRequest for Image {
                     tailwag_web_service::Error::BadRequest("No image found in request.".into()),
                 )?
             },
-            _ => todo!("Need to refactor FromRequest to return an error (for bad requests / etc)"),
+            _ => Err(tailwag_web_service::Error::BadRequest(
+                "This endpoint requires multipart/form_data.".to_owned(),
+            ))?,
         };
         Ok(result)
     }

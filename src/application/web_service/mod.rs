@@ -74,11 +74,11 @@ pub enum AdminActions {
     KillServer,
 }
 
+type HandlerFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 #[allow(private_bounds)]
 pub struct WebServiceInner {
     config: WebServiceConfig,
-    consolidated_handler:
-        Arc<dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>>, // TODO / IDEA: Maybe make this justa "RequestHandler" fn, instead of "handle request"?
+    consolidated_handler: Arc<HandlerFn>, // TODO / IDEA: Maybe make this just a "RequestHandler" fn, instead of "handle request"?
     // routes: Arc<Route>,
     resources: UnconnectedDataSystem,
     server_data: Arc<TypeInstanceMap>,
@@ -296,13 +296,9 @@ impl WebServiceBuilder {
         fn build_middleware(
             routes: Route,
             middleware: Vec<Arc<Middleware>>,
-        ) -> Arc<dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>>
-        {
+        ) -> Arc<HandlerFn> {
             let routes = Arc::new(routes);
-            let mut consolidated_fn: Arc<dyn Fn(
-                Request,
-                RequestContext,
-            ) -> Pin<Box<dyn Future<Output = Response>>>> =
+            let mut consolidated_fn: Arc<HandlerFn> =
                 // Just calls the request. This is our end state.
                 Arc::new(move |req: Request, ctx: RequestContext| {
                     // Box::pin(async move { orig_req(req, ctx).await })
@@ -470,8 +466,8 @@ impl WebService {
         result
     }
 
-    pub async fn handle_request<'a>(
-        &'a self,
+    pub async fn handle_request(
+        &self,
         mut stream: std::net::TcpStream,
         server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
@@ -483,6 +479,7 @@ impl WebService {
             "Request Destructuring",
             crate::application::http::route::Request::try_from(&stream)
         )?;
+
         let context =
             time_exec!("Build Context", RequestContext::from_server_context(server_context));
 

@@ -21,6 +21,9 @@ mod tailwag {
     serde::Serialize,
     sqlx::FromRow,
     tailwag::macros::GetTableDefinition,
+    // CURRENT TASK TODO: I can't do parent-child relationships the same way as Insertable right now - Updateable specifies type, so it can store the DatabaesTableDef<T>, but that makes returning a "Transaction" not feasible.
+    // Ideas:
+    //   * Make a Transaction/Statement struct that contains the blueprint for an SQL statement.
     tailwag::macros::Insertable,
     tailwag::macros::Updateable,
     tailwag::macros::Deleteable,

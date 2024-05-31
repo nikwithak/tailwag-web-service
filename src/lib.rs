@@ -1,3 +1,4 @@
+use tailwag_orm::data_manager::traits::DataProvider;
 
 pub mod application;
 pub mod auth;

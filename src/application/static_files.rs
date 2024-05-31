@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::Read, path::Path};
 
+use tailwag_utils::strings::SanitizeXml;
 use templater::walk_dir::FileWalker;
 
 use super::http::route::{PathVar, Response};
@@ -58,7 +59,11 @@ pub fn load_template<T: serde::Serialize>(
         // TODO: Pre-load the templates /statics
         Path::new(&format!("static/{}", filename)),
         &data,
-    ) else {
+    )
+    .map(|filled| {
+        // TODO: Very inefficient. Need to swap this to do only a single pass through the string.
+        filled.sanitize_xml()
+    }) else {
         return Response::bad_request();
     };
     let Some(filename) = filename.strip_suffix(".template") else {
@@ -112,7 +117,8 @@ pub fn load_static(filename: PathVar<String>) -> Response {
         let mut rendered_html = String::new();
         pulldown_cmark::html::push_html(
             &mut rendered_html,
-            pulldown_cmark::Parser::new(&String::from_utf8(body).unwrap()),
+            pulldown_cmark::Parser::new(&String::from_utf8(body).unwrap().sanitize_xml()),
+            // pulldown_cmark::Parser::new(&String::from_utf8(body).unwrap().sanitize_xml()),
         );
         body = rendered_html.into_bytes();
         "text/html"

@@ -1,6 +1,9 @@
 use std::io::{BufRead, BufReader};
 
-use super::{headers::Headers, route::HttpBody};
+use super::{
+    headers::Headers,
+    route::{FromRequest, HttpBody},
+};
 
 #[derive(Debug, Default)]
 pub struct MultipartPart {
@@ -22,6 +25,8 @@ enum MultipartParserState {
     Body,
     Done,
 }
+
+pub type MulitpartParts = Vec<MultipartPart>;
 #[derive(Default)]
 struct MultipartParser {
     parts: Vec<MultipartPart>,
@@ -30,7 +35,7 @@ struct MultipartParser {
 }
 
 fn check_boundary(
-    bytes: &Vec<u8>,
+    bytes: &[u8],
     boundary: &str,
 ) -> BoundaryMatch {
     let is_boundary = bytes.len() >= boundary.len() + 4 // To avoid out of bounds panic. 4 = len("----") AND len("--\r\n"). It's a bit of a hack.
@@ -110,3 +115,12 @@ pub trait FromMultipartPart {
     where
         Self: Sized;
 }
+
+// impl<T> FromRequest for T
+// where
+//     T: FromMultipartPart,
+// {
+//     fn from(req: super::route::Request) -> Result<Self, crate::Error> {
+//         todo!()
+//     }
+// }

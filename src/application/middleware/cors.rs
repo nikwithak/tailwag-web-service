@@ -83,10 +83,11 @@ pub fn handle_cors(
                     CorsHeader::AccessControlAllowOrigin.to_string(),
                     req.headers
                         .get(&CorsHeader::Origin.to_string())
-                        .map_or("null".to_string(), |s| s.to_owned()),
+                        .map_or("*".to_string(), |s| s.to_owned()),
                 )
                 .with_header(CorsHeader::AccessControlAllowCredentials, "true")
                 .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept")
+                .with_header(CorsHeader::AccessControlAllowMethods, "GET, POST, DELETE, PATCH")
         } else if req.headers.contains_key("origin") {
             // Stash them for later - afterware will have to pull this
             let origin = req
