@@ -1,4 +1,7 @@
-use std::io::{BufRead, BufReader};
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader},
+};
 
 use super::{
     headers::Headers,
@@ -8,6 +11,7 @@ use super::{
 #[derive(Debug, Default)]
 pub struct MultipartPart {
     pub headers: Headers,
+    pub name: String,
     pub content: Vec<u8>,
 }
 
@@ -29,7 +33,7 @@ enum MultipartParserState {
 pub type MulitpartParts = Vec<MultipartPart>;
 #[derive(Default)]
 struct MultipartParser {
-    parts: Vec<MultipartPart>,
+    parts: HashMap<String, MultipartPart>,
     // boundary: String,
     state: MultipartParserState,
 }
@@ -85,23 +89,32 @@ pub fn parse_multipart_request(
                 if header.is_empty() {
                     parser.state = MultipartParserState::Body;
                 } else {
-                    part.headers.insert_parsed(header)?;
+                    let (name, value) = part.headers.insert_parsed(header)?;
+                    if name == "content-disposition" {
+                        part.name = value.get_param("name").map(|s| s.to_string()).ok_or(
+                            crate::Error::BadRequest(
+                                "Found unnamed multipart/form-data field.".into(),
+                            ),
+                        )?;
+                    }
                 }
             },
             MultipartParserState::Body => match check_boundary(&chunk, boundary) {
                 BoundaryMatch::None => part.content.append(&mut chunk),
                 BoundaryMatch::Boundary => {
-                    parser.parts.push(part);
+                    parser.parts.insert(part.name.clone(), part);
                     parser.state = MultipartParserState::Headers;
                     part = MultipartPart::default();
                 },
                 BoundaryMatch::EndBoundary => {
-                    parser.parts.push(part);
+                    parser.parts.insert(part.name.clone(), part);
                     part = MultipartPart::default();
                     parser.state = MultipartParserState::Done;
                 },
             },
-            MultipartParserState::Done => panic!("Continued receiving data after end of parser."),
+            MultipartParserState::Done => panic!(
+                "Continued receiving data after end of parser. This is an inconsistent state."
+            ),
         }
         chunk = Vec::new();
     }

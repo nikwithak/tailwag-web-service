@@ -83,7 +83,7 @@ pub fn handle_cors(
                     CorsHeader::AccessControlAllowOrigin.to_string(),
                     req.headers
                         .get(&CorsHeader::Origin.to_string())
-                        .map_or("*".to_string(), |s| s.to_owned()),
+                        .map_or("*".to_string(), |s| s.to_string()),
                 )
                 .with_header(CorsHeader::AccessControlAllowCredentials, "true")
                 .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept")
@@ -93,7 +93,7 @@ pub fn handle_cors(
             let origin = req
                 .headers
                 .get(&CorsHeader::Origin.to_string())
-                .map_or("null".to_string(), |s| s.to_owned());
+                .map_or("null".to_owned(), |s| s.to_string());
             next(req, ctx)
                 .await
                 .with_header(CorsHeader::AccessControlAllowOrigin.to_string(), origin)

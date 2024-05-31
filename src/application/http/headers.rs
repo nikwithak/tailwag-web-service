@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     io::{BufRead, BufReader},
     ops::DerefMut,
 };
@@ -9,7 +10,62 @@ use tailwag_macros::Deref;
 use crate::Error;
 
 type HeaderName = String;
-type HeaderValue = String;
+// type HeaderValue = String;
+#[derive(Debug, Clone, Deref)]
+pub struct HeaderValue {
+    #[deref]
+    inner: String,
+    params: HashMap<String, String>,
+}
+impl Display for HeaderValue {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T: Into<String>> From<T> for HeaderValue {
+    fn from(s: T) -> Self {
+        let s: String = s.into();
+        Self {
+            params: HeaderValue::parse_params(&s),
+            inner: s,
+        }
+    }
+}
+
+impl HeaderValue {
+    fn parse_params(val: &str) -> HashMap<String, String> {
+        HashMap::from_iter(val.split(';').filter_map(|param| {
+            param.trim().split_once('=').map(|(a, b)| {
+                (
+                    a.trim()
+                        .trim_end_matches('"')
+                        .trim_start_matches('"')
+                        .to_lowercase()
+                        .to_string(),
+                    b.trim().trim_end_matches('"').trim_start_matches('"').to_string(),
+                )
+            })
+        }))
+    }
+
+    pub fn get_params(&self) -> &HashMap<String, String> {
+        &self.params
+    }
+
+    pub fn get_param(
+        &self,
+        key: &str,
+    ) -> Option<&String> {
+        // TODO: Make this ref instead, since we don't need to keep it.
+        // Sturggle is that it introduces lifetimes, and lifetimes are ocntagious.
+        // I guess in reality this should all be tied to the lifetime of the request *anyway*.
+        self.params.get(key)
+    }
+}
 
 #[derive(Debug, Deref)]
 pub struct Headers {
@@ -57,7 +113,7 @@ impl Default for Headers {
                 ("Referrer-Policy", "strict-origin-when-cross-origin"),
             ]
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.into(), v.into()))
             .collect(),
         }
     }
@@ -67,13 +123,18 @@ impl Headers {
     pub fn insert_parsed(
         &mut self,
         header_line: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<(HeaderName, &HeaderValue), Error> {
         let Some((name, value)) = dbg!(header_line).split_once(':') else {
             return Err(Error::BadRequest(format!("Failed to parse header: {}", header_line)));
         };
 
-        self.headers.insert(name.to_string().to_lowercase(), value.trim().to_string());
-        Ok(())
+        let name = name.to_lowercase();
+        self.headers.insert(name.clone(), value.trim().into());
+        let value = self
+            .headers
+            .get(&name)
+            .expect("We literally just added this to the map on the previous line.");
+        Ok((name, value))
     }
     pub fn get(
         &self,
@@ -86,10 +147,7 @@ impl Headers {
 impl From<Vec<(&str, &str)>> for Headers {
     fn from(value: Vec<(&str, &str)>) -> Self {
         Headers {
-            headers: value
-                .into_iter()
-                .map(|(name, val)| (name.to_string(), val.to_string()))
-                .collect(),
+            headers: value.into_iter().map(|(name, val)| (name.into(), val.into())).collect(),
         }
     }
 }

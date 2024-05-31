@@ -423,7 +423,7 @@ pub enum HttpBody {
     // pub bytes: Vec<u8>,
     Json(String),
     Bytes(Vec<u8>),
-    Multipart(Vec<MultipartPart>),
+    Multipart(HashMap<String, MultipartPart>),
     Stream(std::io::BufReader<std::net::TcpStream>),
     Html(String),
     None,
@@ -512,7 +512,7 @@ impl Response {
     default_response!(ok, Ok);
     pub fn redirect_see_other(redirect_url: &str) -> Self {
         let mut headers = Headers::default();
-        headers.insert("Location".into(), redirect_url.to_string());
+        headers.insert("Location".into(), redirect_url.into());
 
         Self {
             http_version: HttpVersion::V1_1,
@@ -542,7 +542,7 @@ impl Response {
         name: impl Into<String>,
         val: impl Into<String>,
     ) -> Self {
-        self.headers.insert(name.into().to_lowercase(), val.into());
+        self.headers.insert(name.into().to_lowercase(), val.into().into());
         self
     }
 }

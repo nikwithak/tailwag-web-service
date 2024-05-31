@@ -170,6 +170,7 @@ pub struct ShopOrder {
     #[create_ignore]
     #[no_filter]
     #[no_form]
+    // TODO: This is breaking the form definition - I need to figure out how to represent nested structs EVERYWHERE
     order_amount: OrderAmount,
     // TODO: once I implement flatten / other types, this will be easier.
     // amount_subtotal: i64,
