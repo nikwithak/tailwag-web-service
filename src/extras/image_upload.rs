@@ -90,15 +90,15 @@ mod tailwag {
 #[post(save_image)]
 #[patch(update_image_md)]
 pub struct ImageMetadata {
-    id: Uuid,
-    namespace: String,
-    key: String,
-    url: String,
-    title: String,
-    description: String,
+    pub id: Uuid,
+    pub namespace: String,
+    pub key: String,
+    pub url: String,
+    pub title: String,
+    pub description: String,
 }
 
-async fn load_image(filename: PathString) -> Response {
+pub async fn load_image(filename: PathString) -> Response {
     let filename = &*filename;
     let Ok(bytes) = std::fs::read(format!("./downloaded_images/{filename}")) else {
         return Response::not_found();
@@ -111,7 +111,7 @@ async fn load_image(filename: PathString) -> Response {
     )
 }
 
-async fn save_image(
+pub async fn save_image(
     image: Image,
     db_images: PostgresDataProvider<ImageMetadata>,
 ) -> Response {
@@ -130,10 +130,10 @@ pub fn update_image_md() {}
 
 #[derive(Clone)]
 pub struct Image {
-    metadata: ImageMetadata,
+    pub metadata: ImageMetadata,
     #[allow(unused)]
-    mime_type: ImageMimeType,
-    bytes: Vec<u8>,
+    pub mime_type: ImageMimeType,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -159,10 +159,7 @@ impl Display for ImageMimeType {
 
 impl ImageMimeType {
     pub fn try_from_filename(filename: &str) -> Result<Self, crate::Error> {
-        let ext = filename
-            .split('.')
-            .last()
-            .expect("Should always have at least one element".into());
+        let ext = filename.split('.').last().expect("Should always have at least one element");
         let mime_type = match ext {
             "jpg" | "jpeg" => Self::Jpeg,
             "gif" => Self::Gif,
