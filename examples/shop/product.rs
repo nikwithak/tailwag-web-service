@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
 use stripe::StripeError;
-use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
+use tailwag_orm::{
+    data_manager::{traits::DataProvider, PostgresDataProvider},
+    queries::filterable_types::FilterEq,
+};
 use tailwag_web_service::{
-    application::http::route::{IntoResponse, PathString, Response, ServerData},
+    application::http::route::{
+        FromRequest, IntoResponse, PathString, Request, Response, ServerData,
+    },
     extras::image_upload::{Image, ImageMetadata},
 };
 use uuid::Uuid;
@@ -98,11 +103,20 @@ impl From<CreateProductRequest> for Product {
     }
 }
 pub async fn save_image(
+    mut req: Request,
     // prod_id: PathString,
-    image: Image,
+    // image: Image,
     db_images: PostgresDataProvider<ImageMetadata>,
     products: PostgresDataProvider<Product>,
 ) -> Response {
+    // TODO [TECH DEBT]: path_params is a vec, but it should really be a map. Need to be able to look up by param name (parsed from route definition)
+    let (Some(Ok(product_id)), Ok(image)) = (
+        req.path_params.pop().map(|id| uuid::Uuid::parse_str(&id)),
+        <Image as FromRequest>::from(req),
+    ) else {
+        log::error!("Missing valid request");
+        return Response::bad_request();
+    };
     let filename = format!("./downloaded_images/{}", &image.metadata.key);
     let metadata = match db_images.create(image.metadata).await {
         Ok(result) => result,
@@ -111,7 +125,7 @@ pub async fn save_image(
             return Response::internal_server_error();
         },
     };
-    let Some(mut prod) = products.all().await.unwrap().next() else {
+    let Ok(Some(mut prod)) = products.get(|p| p.id.eq(product_id)).await else {
         return Response::not_found();
     };
     std::fs::write(filename, image.bytes).unwrap();
@@ -169,6 +183,7 @@ async fn create_stripe_product(
     };
 
     let stripe_product = stripe::Product::create(&stripe_client, stripe_product).await?;
+    product.stripe_product_id = Some(stripe_product.id.to_string());
 
     match &stripe_product.default_price {
         Some(price) => {

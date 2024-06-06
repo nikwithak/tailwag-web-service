@@ -485,7 +485,7 @@ impl WebService {
 
         let response = (self.consolidated_handler)(request, context).await;
 
-        stream.write_all(&dbg!(response).as_bytes())?;
+        stream.write_all(&response.as_bytes())?;
 
         Ok(())
     }

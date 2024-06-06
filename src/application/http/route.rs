@@ -106,7 +106,6 @@ impl Route {
                 Some(new_route) => route = new_route,
                 None => {
                     if let Some((name, new_route)) = &route.dynamic_child {
-                        println!("{}: route found", name);
                         request.path_params.push(segment.to_owned());
                         route = new_route
                     } else {
@@ -300,6 +299,7 @@ pub enum HttpStatus {
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
+    NotImplemented = 501,
     IAmATeapot = 418,
     InternalServerError = 503,
 }
@@ -320,6 +320,7 @@ impl Display for HttpStatus {
                 HttpStatus::Unauthorized => "Unauthorized",
                 HttpStatus::Forbidden => "Forbidden",
                 HttpStatus::NotFound => "Not Found",
+                HttpStatus::NotImplemented => "Not Implemented",
                 HttpStatus::IAmATeapot => "I Am A Teapot",
                 HttpStatus::InternalServerError => "Internal Server Error",
                 // _ => "Unknown",
@@ -507,6 +508,7 @@ macro_rules! default_response {
 impl Response {
     default_response!(bad_request, BadRequest);
     default_response!(not_found, NotFound);
+    default_response!(not_implemented, NotImplemented);
     default_response!(internal_server_error, InternalServerError);
     default_response!(unauthorized, Unauthorized);
     default_response!(ok, Ok);

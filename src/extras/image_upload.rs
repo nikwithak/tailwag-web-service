@@ -89,6 +89,7 @@ mod tailwag {
 #[create_type(ImageMetadata)]
 #[post(save_image)]
 #[patch(update_image_md)]
+// #[views(("/image/{id}", load_image))]
 pub struct ImageMetadata {
     pub id: Uuid,
     pub namespace: String,
@@ -126,7 +127,9 @@ pub async fn save_image(
     std::fs::write(filename, image.bytes).unwrap();
     result.into_response()
 }
-pub fn update_image_md() {}
+pub fn update_image_md() -> impl IntoResponse {
+    Response::not_implemented()
+}
 
 #[derive(Clone)]
 pub struct Image {

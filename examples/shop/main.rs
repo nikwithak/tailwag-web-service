@@ -4,7 +4,7 @@ use tailwag_macros::Display;
 use tailwag_web_service::{
     application::http::route::{IntoResponse, RequestContext, Response},
     auth::gateway::{self, authorize_request, Session},
-    extras::image_upload::ImageMetadata,
+    extras::image_upload::{self, ImageMetadata},
     tasks::TaskScheduler,
 };
 use uuid::Uuid;
@@ -38,6 +38,7 @@ mod tailwag {
     tailwag::forms::macros::GetForm,
 )]
 #[actions(stripe_event)]
+#[post(checkout::checkout)] // This should be the only way to create an order (for now)
 pub struct ShopOrder {
     id: Uuid,
     customer_name: String,
@@ -158,26 +159,18 @@ pub mod checkout {
     }
     pub async fn checkout(
         req: CheckoutRequest,
-        providers: DataSystem,
+        products: PostgresDataProvider<Product>,
+        orders: PostgresDataProvider<ShopOrder>,
         stripe_client: ServerData<stripe::Client>,
     ) -> Response {
-        let Some(products) = providers.get::<Product>() else {
-            log::error!("No Products data provider was found");
-            return Response::internal_server_error();
-        };
-        let Some(orders) = providers.get::<ShopOrder>() else {
-            log::error!("No Orders data provider was found");
-            return Response::internal_server_error();
-        };
-
         let products_fut = req.cart_items.iter().map(|i| {
             products.get(
                 move |filter| filter.id.eq(i.id), // .eq(i.product_id.clone())
             )
         });
-        let mut products = Vec::new();
+        let mut order_products = Vec::new();
         for product in products_fut {
-            products.push(product.await.unwrap().unwrap())
+            order_products.push(product.await.unwrap().unwrap())
         }
 
         type OrderCreateRequest =
@@ -193,7 +186,8 @@ pub mod checkout {
         // };
 
         log::debug!("Got a request: {:?}", req);
-        let Some(url) = create_stripe_session(order, products, &stripe_client).await.url else {
+        let Some(url) = create_stripe_session(order, order_products, &stripe_client).await.url
+        else {
             return Response::internal_server_error();
         };
 
@@ -286,6 +280,7 @@ async fn main() {
         .with_resource::<ImageMetadata>() // TODO - Needed to make sure the tables get created. TODO: Auto-create all direct dependent tables automatically in the ORM
         .post_public("/checkout", checkout::checkout) // TODO
         .post_public("/email", email_webhook)
+        .get_public("/image/{filename}", image_upload::load_image)
         .with_server_data(stripe::Client::new(
             std::env::var("STRIPE_API_KEY").expect("STRIPE_API_KEY is missing from env."), // TODO: Move to a 'config' automation / macro.
         ))
