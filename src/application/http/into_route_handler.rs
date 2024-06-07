@@ -139,6 +139,7 @@ where
 
 macro_rules! generate_trait_impl {
     (R1, $($context_id:ident),*) => {
+        // async fn(FromRequest, FromContext1, ..., FromContextN, RequestContext) -> IntoResponse;
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)* RequestContext), ($($context_id),*, I, (O, Fut))> for F
         where
@@ -166,6 +167,7 @@ macro_rules! generate_trait_impl {
             }
         }
 
+        // fn(FromRequest, FromContext1, ..., FromContextN, RequestContext) -> IntoResponse;
         impl<F, I, $($context_id,)* O>
             IntoRouteHandler<F, ($($context_id,)* RequestContext), ($($context_id,)* I, O)> for F
         where
@@ -190,6 +192,7 @@ macro_rules! generate_trait_impl {
             }
         }
 
+        // async fn(FromRequest, FromContext1, ..., FromContextN) -> IntoResponse;
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, Fut))> for F
         where
@@ -217,6 +220,7 @@ macro_rules! generate_trait_impl {
             }
         }
 
+        // fn(FromRequest, FromContext1, ..., FromContextN) -> IntoResponse;
         impl<F, I, $($context_id,)* O>
             IntoRouteHandler<F, ($($context_id,)*), ($($context_id,)* I, O)> for F
         where
@@ -243,6 +247,7 @@ macro_rules! generate_trait_impl {
 
         /// This impl is made to support Result<Response, crate::Error>, enabling ? interfaces for
         /// our responses.
+        ///  async fn(FromRequest, FromContext1, ..., FromContextN) -> IntoResponse;
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, (), Fut))> for F
         where
