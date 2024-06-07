@@ -118,10 +118,8 @@ async fn process_checkout_session_completed_event(
     //     log::info!("No customer found");
     // }
 
-    // TODO: Fix this later.
-    let mut order_amount = OrderAmount::from(session);
-    order_amount.id = order.order_amount.id;
-    order.order_amount = order_amount;
+    let order_amount = OrderAmount::from(session);
+    order.order_amount = Some(order_amount);
 
     // Send emails if it hasn't already been sent
     if !order.confirmation_email_sent {
@@ -129,12 +127,11 @@ async fn process_checkout_session_completed_event(
         let sendgrid_client = SendGridEmailClient::from_env()?;
         sendgrid_client
             .send_email(
+                // TODO [HARDCODING] [CONFIG]: Read this from config 
                 // &order.customer_email,
                 "nwakg@pm.me", // Harddcoding my email for testing, to avoid sending emails randomly to fake test emails
                 "Your Tailwag Order",
-                r#"Your order has been successfully placed! Payment reeived, etc. etc.
-
-
+                r#"Your order has been successfully placed! Payment received, etc. etc.
 
 Thanks for ordering.
 

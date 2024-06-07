@@ -489,6 +489,18 @@ pub struct Response {
     pub headers: Headers,
     pub body: Vec<u8>,
 }
+// impl<E: std::error::Error> From<E> for Response {
+//     fn from(value: E) -> Self {
+//         Response::internal_server_error()
+//     }
+// }
+
+impl From<tailwag_orm::Error> for Response {
+    fn from(value: tailwag_orm::Error) -> Self {
+        log::error!("");
+        Response::internal_server_error()
+    }
+}
 
 macro_rules! default_response {
     ($fnname:ident, $enumname:ident) => {

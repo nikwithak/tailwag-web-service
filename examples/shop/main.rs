@@ -51,7 +51,7 @@ pub struct ShopOrder {
     #[no_filter]
     #[no_form]
     // TODO: This is breaking the form definition - I need to figure out how to represent nested structs EVERYWHERE
-    order_amount: OrderAmount,
+    order_amount: Option<OrderAmount>,
     // TODO: once I implement flatten / other types, this can auto-expand to:
     // amount_subtotal: i64,
     // amount_tax: i64,
@@ -145,11 +145,13 @@ pub mod checkout {
 
     use crate::{CartItem, Product, ShopOrder};
     use tailwag_orm::{
-        data_definition::exp_data_system::DataSystem,
         data_manager::{traits::DataProvider, PostgresDataProvider},
         queries::filterable_types::FilterEq,
     };
-    use tailwag_web_service::application::http::route::{IntoResponse, Response, ServerData};
+    use tailwag_web_service::{
+        application::http::route::{IntoResponse, Response, ServerData},
+        Error,
+    };
 
     #[derive(serde::Serialize, serde::Deserialize, Debug)]
     pub struct CheckoutRequest {
@@ -162,7 +164,7 @@ pub mod checkout {
         products: PostgresDataProvider<Product>,
         orders: PostgresDataProvider<ShopOrder>,
         stripe_client: ServerData<stripe::Client>,
-    ) -> Response {
+    ) -> Result<Response, tailwag_web_service::Error> {
         let products_fut = req.cart_items.iter().map(|i| {
             products.get(
                 move |filter| filter.id.eq(i.id), // .eq(i.product_id.clone())
@@ -178,7 +180,7 @@ pub mod checkout {
         let order = OrderCreateRequest {
             ..Default::default()
         };
-        let order = orders.create(order).await.unwrap();
+        let order = orders.create(order).await?;
         // let Ok(order) = orders.create(order).await else {
         //     log::error!("Failed to create order");
         //     // TODO: Figure out how to consume the ? operator here. Writing this every time is annoying.
@@ -186,16 +188,16 @@ pub mod checkout {
         // };
 
         log::debug!("Got a request: {:?}", req);
-        let Some(url) = create_stripe_session(order, order_products, &stripe_client).await.url
-        else {
-            return Response::internal_server_error();
-        };
+        let url = create_stripe_session(order, order_products, &stripe_client)
+            .await
+            .url
+            .ok_or(Error::InternalServerError("Failed to create stripe session.".into()))?;
 
         // Response::redirect_see_other(&url)
-        vec![("payment_url", url)]
+        Ok(vec![("payment_url", url)]
             .into_iter()
             .collect::<HashMap<&str, String>>()
-            .into_response()
+            .into_response())
     }
 
     async fn create_stripe_session(

@@ -1,4 +1,4 @@
-use tailwag_orm::data_manager::traits::DataProvider;
+use application::http::route::{IntoResponse, Response};
 
 pub mod application;
 pub mod auth;
@@ -11,6 +11,7 @@ pub mod traits;
 #[derive(Debug)]
 pub enum Error {
     BadRequest(String),
+    InternalServerError(String),
     NotFound,
 }
 impl<T: ToString> From<T> for Error {
@@ -24,3 +25,21 @@ impl<T: ToString> From<T> for Error {
 //         todo!()
 //     }
 // }
+
+impl IntoResponse for crate::Error {
+    fn into_response(self) -> Response {
+        match self {
+            Error::BadRequest(msg) => {
+                log::warn!("[BAD REQUEST] {}", &msg);
+                Response::bad_request()
+            },
+            Error::NotFound => Response::not_found(),
+            Error::InternalServerError(msg) => {
+                log::error!("[INTERNAL SERVER ERROR]: {}", &msg);
+                Response::internal_server_error()
+            },
+        }
+    }
+}
+
+pub type ResponseResult<T> = core::result::Result<T, crate::Error>;

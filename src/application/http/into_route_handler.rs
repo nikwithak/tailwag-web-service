@@ -240,6 +240,39 @@ macro_rules! generate_trait_impl {
                 }
             }
         }
+
+        /// This impl is made to support Result<Response, crate::Error>, enabling ? interfaces for
+        /// our responses.
+        impl<F, I, $($context_id,)* O, Fut>
+            IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, (), Fut))> for F
+        where
+            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            I: FromRequest + Sized + 'static,
+            $($context_id: From<ServerContext> + Sized + 'static,)*
+            O: IntoResponse + Sized + Send + 'static,
+            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+        {
+            fn into(self) -> RouteHandler {
+                RouteHandler {
+                    handler: Box::new(move |req, ctx| {
+                        Box::pin(async move {
+                            let Ok(req) = I::from(req) else {
+                                return Response::bad_request();
+                            };
+
+                            match
+                                self(
+                                req, $($context_id::from(ctx.clone())),*)
+                                .await {
+                                    Ok(response) => response.into_response(),
+                                    Err(err) => err.into_response(),
+                                }
+
+                        })
+                    }),
+                }
+            }
+        }
     };
 }
 
