@@ -11,6 +11,33 @@ use uuid::Uuid;
 mod product;
 pub use product::*;
 
+pub mod stripe_integration;
+
+#[tokio::main]
+async fn main() {
+    tailwag_web_service::application::WebService::builder("My Shop Service")
+        .with_middleware(authorize_request)
+        .post_public("/login", gateway::login)
+        .post_public("/register", gateway::register)
+        .with_resource::<Product>() // TODO- public GET with filtering)
+        .with_resource::<ShopOrder>() // TODO - public POST, restricted GET (to specific customer, via email)
+        .with_resource::<OrderAmount>() // TODO - Needed to make sure the tables get created. TODO: Auto-create all direct dependent tables automatically in the ORM
+        .with_resource::<ImageMetadata>() // TODO - Needed to make sure the tables get created. TODO: Auto-create all direct dependent tables automatically in the ORM
+        .post_public("/checkout", checkout::checkout) // TODO
+        .post_public("/email", email_webhook)
+        .get_public("/image/{filename}", image_upload::load_image)
+        .with_server_data(stripe::Client::new(
+            std::env::var("STRIPE_API_KEY").expect("STRIPE_API_KEY is missing from env."), // TODO: Move to a 'config' automation / macro.
+        ))
+        .with_task(stripe_integration::handle_stripe_event)
+        .with_task(send_email)
+        .with_static_files()
+        .build_service()
+        .run()
+        .await
+        .unwrap();
+}
+
 // Needed to simulate  the consolidation library that doesn't actually exist in this scope.
 // TODO: Fix this bloody thing, it's annoying.
 mod tailwag {
@@ -266,31 +293,4 @@ pub async fn send_email(event: SendEmailEvent) {
     } = event;
     let client = tailwag_utils::email::sendgrid::SendGridEmailClient::from_env().unwrap();
     client.send_email(&recipient, &subject, &body).await.unwrap();
-}
-
-pub mod stripe_integration;
-
-#[tokio::main]
-async fn main() {
-    tailwag_web_service::application::WebService::builder("My Events Service")
-        .with_middleware(authorize_request)
-        .post_public("/login", gateway::login)
-        .post_public("/register", gateway::register)
-        .with_resource::<Product>() // TODO- public GET with filtering)
-        .with_resource::<ShopOrder>() // TODO - public POST, restricted GET (to specific customer, via email)
-        .with_resource::<OrderAmount>() // TODO - Needed to make sure the tables get created. TODO: Auto-create all direct dependent tables automatically in the ORM
-        .with_resource::<ImageMetadata>() // TODO - Needed to make sure the tables get created. TODO: Auto-create all direct dependent tables automatically in the ORM
-        .post_public("/checkout", checkout::checkout) // TODO
-        .post_public("/email", email_webhook)
-        .get_public("/image/{filename}", image_upload::load_image)
-        .with_server_data(stripe::Client::new(
-            std::env::var("STRIPE_API_KEY").expect("STRIPE_API_KEY is missing from env."), // TODO: Move to a 'config' automation / macro.
-        ))
-        .with_task(stripe_integration::handle_stripe_event)
-        .with_task(send_email)
-        .with_static_files()
-        .build_service()
-        .run()
-        .await
-        .unwrap();
 }
