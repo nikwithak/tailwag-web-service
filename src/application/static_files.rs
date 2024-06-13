@@ -1,7 +1,6 @@
 use std::{collections::HashMap, io::Read, path::Path};
 
-use tailwag_utils::strings::SanitizeXml;
-use templater::walk_dir::FileWalker;
+use tailwag_utils::{files::FileWalker, strings::SanitizeXml, templates::templatize_file};
 
 use super::http::route::{PathVar, Response};
 
@@ -55,7 +54,7 @@ pub fn load_template<T: serde::Serialize>(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let Ok(mut filled) = templater::templatize_file(
+    let Ok(mut filled) = templatize_file(
         // TODO: Pre-load the templates /statics
         Path::new(&format!("static/{}", filename)),
         &data,
