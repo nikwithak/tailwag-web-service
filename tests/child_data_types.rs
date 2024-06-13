@@ -107,12 +107,12 @@ fn run_hurl_tests() {
     sleep(Duration::from_secs(2)); // Wait for service to start up. TODO: Give a way to poll the service.
     println!("Checking server status");
 
-    // test_hurl_file!("child_data_types.hurl");
+    test_hurl_file!("child_data_types.hurl");
 
     // // Tell the server to shut up now
-    // let signal = kill_signal_cell.get().unwrap();
-    // signal.send(AdminActions::KillServer).unwrap();
-    // println!("Sent kill signal to service");
+    let signal = kill_signal_cell.get().unwrap();
+    signal.send(AdminActions::KillServer).unwrap();
+    println!("Sent kill signal to service");
 
     // // // The kill signal doesn't fire until another request comes in...
     // // // definitely a bug but not worth fixing rn, the kill signal was hacked together

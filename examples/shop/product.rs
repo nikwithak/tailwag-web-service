@@ -2,12 +2,10 @@ use serde::{Deserialize, Serialize};
 use stripe::StripeError;
 use tailwag_orm::{
     data_manager::{traits::DataProvider, PostgresDataProvider},
-    queries::filterable_types::FilterEq,
+    queries::filterable_types::{FilterEq, FilterLike},
 };
 use tailwag_web_service::{
-    application::http::route::{
-        FromRequest, IntoResponse, PathString, Request, Response, ServerData,
-    },
+    application::http::route::{FromRequest, IntoResponse, Request, Response, ServerData},
     extras::image_upload::{Image, ImageMetadata},
 };
 use uuid::Uuid;
@@ -40,8 +38,7 @@ mod tailwag {
 )]
 #[create_type(CreateProductRequest)]
 #[post(create_product)]
-// #[actions(("/{id}/image", image_upload::))]
-#[actions(("/{id}/image", save_image))]
+#[actions(("/{id}/image", save_image))] // Can only upload an image AFTER the object has been created, due to current limitations with binary file uploads.
 pub struct Product {
     #[no_form]
     id: Uuid,

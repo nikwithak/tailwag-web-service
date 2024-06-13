@@ -70,7 +70,7 @@ pub struct ShopOrder {
     id: Uuid,
     customer_name: String,
     customer_email: String,
-    status: String,
+    status: String, // TODO: Pipe enums through here.
     stripe_session_id: String,
     confirmation_email_sent: bool,
     // #[no_filter]
@@ -79,6 +79,7 @@ pub struct ShopOrder {
     #[no_form]
     // TODO: This is breaking the form definition - I need to figure out how to represent nested structs EVERYWHERE
     order_amount: Option<OrderAmount>,
+    // line_items: Vec<Product>,
     // TODO: once I implement flatten / other types, this can auto-expand to:
     // amount_subtotal: i64,
     // amount_tax: i64,
