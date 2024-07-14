@@ -67,11 +67,7 @@ jsonwebtoken = "9.2.0"
 argon2 = "0.5.3"
 tower = "0.4.13"
 futures = "0.3.30"
-templater = { version = "0.1.0", path = "../templater" }
 pulldown-cmark = "0.10.2"
-
-[build-dependencies]
-templater = { version = "0.1.0", path = "../templater" }
 
 [features]
 default = ["development", "tasks"]
