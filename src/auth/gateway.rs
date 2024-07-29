@@ -95,7 +95,7 @@ struct JwtClaims {
     exp: usize,
 }
 
-pub fn authorize_request(
+pub fn extract_session(
     request: Request,
     mut context: RequestContext,
     next: Arc<NextFn>,
@@ -104,8 +104,8 @@ pub fn authorize_request(
         let Some(sessions) = context.get::<Session>() else {
             return Response::internal_server_error();
         };
+
         // First, log request:
-        // TODO: Middleware this somewhere else, inject Request ID, etc.
         log::debug!("{:?} {:?} {:?}", &request.method, &request.path, request.headers);
         fn extract_authz_token(request: &Request) -> Option<String> {
             if let Some(header) = request
@@ -129,49 +129,59 @@ pub fn authorize_request(
             }
         }
 
-        // TODO: Allow other whitelisted.
-        // Expose through Context, maybe, so that we can check the authz policy of the
-        // destination route?
-        // if ["/login", "/register",].contains(&request.path.as_str()) {
-        if true {
-            return next(request, context).await;
-        }
+        let session_id = extract_authz_token(&request)
+            .and_then(|token| {
+                jsonwebtoken::decode::<JwtClaims>(
+                    &token,
+                    &jsonwebtoken::DecodingKey::from_secret(JWT_SECRET.as_ref()),
+                    &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+                )
+                .ok()
+            })
+            .map(|token_data| token_data.claims)
+            .map(|claims| claims.session_id);
 
-        let Some(authz_token) = extract_authz_token(&request) else {
-            return Response::unauthorized();
+        let session = match session_id {
+            Some(session_id) => sessions.get(|sess| sess.id.eq(session_id)).await,
+            None => Ok(None),
         };
-
-        let decoded_jwt = match jsonwebtoken::decode::<JwtClaims>(
-            &authz_token,
-            &jsonwebtoken::DecodingKey::from_secret(JWT_SECRET.as_ref()),
-            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
-        ) {
-            Ok(jwt) => jwt,
-            Err(e) => {
-                println!("error: {}", e);
-                return Response::unauthorized();
-            },
-        };
-        let JwtClaims {
-            session_id,
-            ..
-        } = decoded_jwt.claims;
-
-        match sessions.get(|sess| sess.id.eq(session_id)).await {
+        match session {
             Ok(Some(session)) => {
                 log::debug!("Session found! {:?}", &session);
                 log::debug!("Adding session to RequestContext");
                 context.insert_request_data(session);
-
                 next(request, context).await
             },
-            Ok(None) => Response::unauthorized(),
+            Ok(None) => {
+                log::debug!("No session found fo request.");
+                next(request, context).await
+            },
             Err(e) => {
                 log::error!("An error occurred while authorizing the account: {:?}", e);
                 Response::unauthorized()
             },
         }
     })
+}
+
+pub fn authorize_request(
+    request: Request,
+    context: RequestContext,
+    next: Arc<NextFn>,
+) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+    todo!("This needs to be reworked. Now that we extract the sssion in a seaprate middleware, this one needs to run the policy against the actual route.");
+    // Box::pin(async move {
+    //     let session = context.get_request_data::<Session>();
+
+    //     match session {
+    //         Some(session) => {
+    //             log::debug!("Session found! {:?}", &session);
+    //             log::debug!("Adding session to RequestContext");
+    //             next(request, context).await
+    //         },
+    //         None => Response::unauthorized(),
+    //     }
+    // })
 }
 
 // The actual middleware function

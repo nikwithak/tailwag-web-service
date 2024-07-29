@@ -27,7 +27,7 @@ use crate::{
 
 pub type RoutePath = String;
 
-enum RoutePolicy {
+pub enum RoutePolicy {
     Public,
     #[allow(unused)]
     Protected,
@@ -149,7 +149,7 @@ macro_rules! impl_method {
             path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.with_handler(HttpMethod::$variant, path, handler.into())
+            self.with_handler(HttpMethod::$variant, path, handler.into(), RoutePolicy::Protected)
         }
     };
     ($method:ident:$variant:ident, public) => {
@@ -158,19 +158,13 @@ macro_rules! impl_method {
             path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.with_handler(HttpMethod::$variant, path, handler.into())
+            self.with_handler(HttpMethod::$variant, path, handler.into(), RoutePolicy::Public)
         }
     };
 }
 impl Route {
     impl_method!(get:Get);
-    pub fn post<F, I, O>(
-        self,
-        path: &str,
-        handler: impl IntoRouteHandler<F, I, O>,
-    ) -> Self {
-        self.with_handler(HttpMethod::Post, path, handler.into())
-    }
+    impl_method!(post:Post);
     impl_method!(delete:Delete);
     impl_method!(patch:Patch);
     impl_method!(get_public:Get, public);
@@ -191,8 +185,9 @@ impl Route {
         method: HttpMethod,
         path: &str,
         handler: impl IntoRouteHandler<F, I, O>,
+        policy: RoutePolicy,
     ) -> Self {
-        self.add_handler(method, path, handler);
+        self.add_handler(method, path, handler, policy);
         self
     }
     pub fn add_handler<F, I, O>(
@@ -200,6 +195,7 @@ impl Route {
         method: HttpMethod,
         path: &str,
         handler: impl IntoRouteHandler<F, I, O>,
+        policy: RoutePolicy,
     ) {
         let parts = path.split('/');
         let mut route = self;
@@ -232,7 +228,13 @@ impl Route {
         // Static vs Dynamic routes
         if route
             .handlers
-            .insert(method, PoliciedRouteHandler::public(handler.into()))
+            .insert(
+                method,
+                PoliciedRouteHandler {
+                    handler: Box::new(handler.into()),
+                    _policy: policy,
+                },
+            )
             .is_some()
         {
             panic!("This route already has a handler");

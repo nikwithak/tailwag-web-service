@@ -120,14 +120,16 @@ impl Default for WebServiceBuilder {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         // Load in the current `.env` file, if it exists. If it fails, who cares, the rest of the ENV should be set.
         dotenv::dotenv().ok();
+        let database_conn_string = dbg!(std::env::var("DATABASE_CONN_STRING")
+            .unwrap_or("postgres://postgres:postgres@127.0.0.1:5432/postgres".into()));
         Self {
             config: WebServiceConfig {
-                socket_addr: "127.0.0.1".to_owned(),
+                socket_addr: "0.0.0.0".to_owned(),
                 port: 8081,
                 max_threads: 4,
                 application_name: "Tailwag Default Application".into(),
                 migrate_on_init: true,
-                database_conn_string: "postgres://postgres:postgres@127.0.0.1:5432/postgres".into(),
+                database_conn_string,
                 request_timeout_seconds: 30,
             },
             resources: DataSystem::builder(),
@@ -145,6 +147,16 @@ impl Default for WebServiceBuilder {
 }
 
 macro_rules! build_route_method {
+    ($method:ident:$variant:ident) => {
+        pub fn $method<F, I, O>(
+            mut self,
+            path: &str,
+            handler: impl IntoRouteHandler<F, I, O>,
+        ) -> Self {
+            self.root_route = self.root_route.$method(path, handler);
+            self
+        }
+    };
     ($method:ident:$variant:ident) => {
         pub fn $method<F, I, O>(
             mut self,
