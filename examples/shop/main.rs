@@ -3,7 +3,7 @@ use stripe_integration::stripe_event;
 use tailwag_macros::Display;
 use tailwag_web_service::{
     application::http::route::{IntoResponse, RequestContext, Response},
-    auth::gateway::{self, authorize_request, Session},
+    auth::gateway::{self, extract_session, Session},
     extras::image_upload::{self, ImageMetadata},
     tasks::TaskScheduler,
 };
@@ -16,7 +16,7 @@ pub mod stripe_integration;
 #[tokio::main]
 async fn main() {
     tailwag_web_service::application::WebService::builder("My Shop Service")
-        .with_middleware(authorize_request)
+        .with_middleware(extract_session)
         .post_public("/login", gateway::login)
         .post_public("/register", gateway::register)
         .with_resource::<Product>() // TODO- public GET with filtering)

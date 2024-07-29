@@ -1,13 +1,13 @@
 use tailwag_web_service::{
     application::WebService,
-    auth::gateway::{authorize_request, login, register},
+    auth::gateway::{extract_session, login, register},
     Error,
 };
 
 #[tokio::main]
 pub async fn main() -> Result<(), Error> {
     WebService::builder("AuthN/AuthZ Service")
-        .with_middleware(authorize_request)
+        .with_middleware(extract_session)
         .post_public("login", login)
         .post_public("register", register)
         .post("echo", echo)

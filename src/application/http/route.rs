@@ -57,6 +57,7 @@ struct PoliciedRouteHandler {
 
 // I'll probably end up ditching this for something... better.
 // I haven't quite wrapped my head around how I want to structure policies.
+#[allow(unused)]
 impl PoliciedRouteHandler {
     pub fn public(handler: RouteHandler) -> Self {
         Self {

@@ -38,7 +38,8 @@ mod tailwag {
 )]
 #[create_type(CreateProductRequest)]
 #[post(create_product)]
-#[actions(("/{id}/image", save_image))] // Can only upload an image AFTER the object has been created, due to current limitations with binary file uploads.
+#[actions(("/{id}/image", save_image))]
+// Can only upload an image AFTER the object has been created, due to current limitations with binary file uploads.
 pub struct Product {
     #[no_form]
     id: Uuid,

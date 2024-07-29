@@ -1,17 +1,13 @@
 use std::{fmt::Display, str::FromStr};
 
 use crate::{
-    application::{
-        http::{
-            headers::Headers,
-            multipart::{FromMultipartPart, MultipartPart},
-            route::{FromRequest, IntoResponse, PathString, PathVar, Response},
-        },
-        WebService,
+    application::http::{
+        headers::Headers,
+        multipart::MultipartPart,
+        route::{FromRequest, IntoResponse, PathString, Response},
     },
     Error,
 };
-use tailwag_macros::derive_magic;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
@@ -75,7 +71,6 @@ mod tailwag {
     Default,
     serde::Deserialize,
     serde::Serialize,
-    sqlx::FromRow,
     tailwag::macros::GetTableDefinition,
     tailwag::macros::Insertable,
     tailwag::macros::Updateable,
@@ -187,6 +182,7 @@ impl FromStr for ImageMimeType {
     }
 }
 
+#[allow(unused)]
 trait GetFileDetails {
     fn get_image_mime_type(&self) -> Option<ImageMimeType>;
     fn get_content_type(&self) -> Option<&str>;

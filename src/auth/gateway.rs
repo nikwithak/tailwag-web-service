@@ -164,26 +164,6 @@ pub fn extract_session(
     })
 }
 
-pub fn authorize_request(
-    request: Request,
-    context: RequestContext,
-    next: Arc<NextFn>,
-) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
-    todo!("This needs to be reworked. Now that we extract the sssion in a seaprate middleware, this one needs to run the policy against the actual route.");
-    // Box::pin(async move {
-    //     let session = context.get_request_data::<Session>();
-
-    //     match session {
-    //         Some(session) => {
-    //             log::debug!("Session found! {:?}", &session);
-    //             log::debug!("Adding session to RequestContext");
-    //             next(request, context).await
-    //         },
-    //         None => Response::unauthorized(),
-    //     }
-    // })
-}
-
 // The actual middleware function
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {

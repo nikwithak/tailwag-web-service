@@ -127,7 +127,7 @@ async fn process_checkout_session_completed_event(
         let sendgrid_client = SendGridEmailClient::from_env()?;
         sendgrid_client
             .send_email(
-                // TODO [HARDCODING] [CONFIG]: Read this from config 
+                // TODO [HARDCODING] [CONFIG]: Read this from config
                 // &order.customer_email,
                 "nwakg@pm.me", // Harddcoding my email for testing, to avoid sending emails randomly to fake test emails
                 "Your Tailwag Order",
