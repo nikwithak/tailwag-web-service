@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq,
@@ -79,6 +79,13 @@ impl tailwag::orm::data_manager::rest_api::Id for Session {
         &self.id
     }
 }
+impl Session {
+    pub fn roles(&self) -> &HashSet<UserRole> {
+        todo!("Roles not implemented yet.")
+    }
+}
+
+pub type UserRole = String;
 
 #[derive(Default)]
 pub enum AccountType {
@@ -182,9 +189,9 @@ pub struct LoginResponse {
 pub async fn login(
     creds: LoginRequest,
     providers: DataSystem,
-) -> Option<LoginResponse> {
-    let accounts = providers.get::<Account>()?;
-    let sessions = providers.get::<Session>()?;
+) -> Result<LoginResponse, crate::Error> {
+    let accounts = providers.get::<Account>().ok_or(crate::Error::NotFound)?;
+    let sessions = providers.get::<Session>().ok_or(crate::Error::NotFound)?;
 
     let account = accounts
         .with_filter(|acct| acct.email_address.eq(&creds.email_address))
@@ -192,14 +199,13 @@ pub async fn login(
         .await
         .ok()
         // TODO: Need to update get() to ensure only one exists
-        .and_then(|mut vec| vec.pop())?;
+        .and_then(|mut vec| vec.pop())
+        .ok_or(crate::Error::NotFound)?;
 
-    argon2::Argon2::default()
-        .verify_password(
-            creds.password.as_bytes(),
-            &argon2::PasswordHash::new(&account.passhash).unwrap(),
-        )
-        .ok()?; // TODO?: Should I throw an error, or just "Not Found" is good enough?
+    argon2::Argon2::default().verify_password(
+        creds.password.as_bytes(),
+        &argon2::PasswordHash::new(&account.passhash).unwrap(),
+    )?;
     let account = Account {
         passhash: "".into(),
         // roles: vec![AuthorizationRole::Admin],
@@ -242,7 +248,7 @@ pub async fn login(
     //         .expect("Failed to set cookie."),
     // );
     // response.into_response()
-    Some(response)
+    Ok(response)
 }
 
 #[derive(Serialize, Deserialize)]

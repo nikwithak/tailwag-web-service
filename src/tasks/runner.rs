@@ -198,7 +198,8 @@ mod from_to_impl {
 }
 pub use from_to_impl::*;
 
-enum Signal {
+#[derive(Serialize)]
+pub(crate) enum Signal {
     #[allow(unused)]
     Kill,
 }

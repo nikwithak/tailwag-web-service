@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
-use crate::tasks::runner::{IntoTaskHandler, TaskExecutor};
+use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
@@ -470,10 +470,18 @@ impl WebService {
         self.run_migrations(&db_pool).await?;
         let context = self.build_context(&db_pool).await;
 
+        let mut task_scheduler = self
+            .task_executor
+            .as_ref()
+            .map(|te| te.scheduler())
+            .ok_or("Unable to get task scheduler.".to_string())?;
         let tasks_thread = self.start_task_executor(context.clone());
         let result = self.start_service(context.clone()).await;
 
         // Let the tasks_thread die
+        task_scheduler
+            .enqueue(Signal::Kill)
+            .map_err(|err| format!("Unable to schedule task: {:?}", err))?;
         tasks_thread.map(|thread| thread.join());
         result
     }

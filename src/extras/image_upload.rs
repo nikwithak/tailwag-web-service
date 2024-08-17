@@ -32,7 +32,7 @@ impl FromRequest for Image {
                 let title = parts
                     .remove("title")
                     .map(|title| String::from_utf8(title.content))
-                    .unwrap_or(Ok("".into()))?;
+                    .unwrap_or(Ok("Untitled Image".into()))?;
                 let description = parts
                     .remove("description")
                     .map(|description| String::from_utf8(description.content))
@@ -157,7 +157,10 @@ impl Display for ImageMimeType {
 
 impl ImageMimeType {
     pub fn try_from_filename(filename: &str) -> Result<Self, crate::Error> {
-        let ext = filename.split('.').last().expect("Should always have at least one element");
+        let ext = filename
+            .split('.')
+            .last()
+            .ok_or(crate::Error::BadRequest("Invalid filename provided.".into()))?;
         let mime_type = match ext {
             "jpg" | "jpeg" => Self::Jpeg,
             "gif" => Self::Gif,

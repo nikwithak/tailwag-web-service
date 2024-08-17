@@ -27,10 +27,17 @@ use crate::{
 
 pub type RoutePath = String;
 
+#[derive(Default)]
 pub enum RoutePolicy {
+    #[default]
     Public,
     #[allow(unused)]
-    Protected,
+    RequireAuthentication,
+    RequireRole(String),
+}
+
+pub trait RouteAuthorizationPolicy {
+    fn is_authorized(session: &Session) -> bool;
 }
 
 /// An extractor used to specify that the inputs should come from a PathVariable.
@@ -69,7 +76,7 @@ impl PoliciedRouteHandler {
     pub fn protected(handler: RouteHandler) -> Self {
         Self {
             handler: Box::new(handler),
-            _policy: RoutePolicy::Protected,
+            _policy: RoutePolicy::RequireAuthentication,
         }
     }
 }
@@ -135,11 +142,16 @@ fn is_authorized(
 ) -> bool {
     match policy {
         RoutePolicy::Public => true, // Always allow public routes
-        RoutePolicy::Protected => ctx.get_request_data::<Session>().map_or(false, |_session| {
-            // TODO: For now we just look to see if the session exists. Need to add better validation.
-            // THIS IS NOT WELL-TESTED
-            true
-        }),
+        RoutePolicy::RequireAuthentication => {
+            ctx.get_request_data::<Session>().map_or(false, |_session| {
+                // TODO: For now we just look to see if the session exists. Need to add better validation.
+                // THIS IS NOT WELL-TESTED
+                true
+            })
+        },
+        RoutePolicy::RequireRole(role) => ctx
+            .get_request_data::<Session>()
+            .map_or(false, |sess| sess.roles().contains(role)),
     }
 }
 
@@ -150,7 +162,21 @@ macro_rules! impl_method {
             path: &str,
             handler: impl IntoRouteHandler<F, I, O>,
         ) -> Self {
-            self.with_handler(HttpMethod::$variant, path, handler.into(), RoutePolicy::Protected)
+            self.with_handler(HttpMethod::$variant, path, handler.into(), RoutePolicy::default())
+        }
+    };
+    ($method:ident:$variant:ident, protected) => {
+        pub fn $method<F, I, O>(
+            self,
+            path: &str,
+            handler: impl IntoRouteHandler<F, I, O>,
+        ) -> Self {
+            self.with_handler(
+                HttpMethod::$variant,
+                path,
+                handler.into(),
+                RoutePolicy::RequireAuthentication,
+            )
         }
     };
     ($method:ident:$variant:ident, public) => {
@@ -162,12 +188,30 @@ macro_rules! impl_method {
             self.with_handler(HttpMethod::$variant, path, handler.into(), RoutePolicy::Public)
         }
     };
+    ($method:ident:$variant:ident, with_policy) => {
+        pub fn $method<F, I, O>(
+            self,
+            path: &str,
+            handler: impl IntoRouteHandler<F, I, O>,
+            policy: RoutePolicy,
+        ) -> Self {
+            self.with_handler(HttpMethod::$variant, path, handler.into(), policy)
+        }
+    };
 }
 impl Route {
     impl_method!(get:Get);
     impl_method!(post:Post);
     impl_method!(delete:Delete);
     impl_method!(patch:Patch);
+    impl_method!(get_with_policy:Get, with_policy);
+    impl_method!(post_with_policy:Post, with_policy);
+    impl_method!(delete_with_policy:Delete, with_policy);
+    impl_method!(patch_with_policy:Patch, with_policy);
+    impl_method!(get_protected:Get, protected);
+    impl_method!(post_protected:Post, protected);
+    impl_method!(delete_protected:Delete, protected);
+    impl_method!(patch_protected:Patch, protected);
     impl_method!(get_public:Get, public);
     impl_method!(post_public:Post, public);
     impl_method!(delete_public:Delete, public);
