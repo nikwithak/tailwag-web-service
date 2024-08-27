@@ -82,7 +82,6 @@ pub struct WebServiceInner {
     // routes: Arc<Route>,
     resources: UnconnectedDataSystem,
     server_data: Arc<TypeInstanceMap>,
-    migrations: Arc<Mutex<MigrationRunners>>, // Wrapped in a Mutex to work around some Arc issues - these only need to be run once.
     admin_rx: Receiver<AdminActions>,
 }
 
@@ -171,10 +170,6 @@ macro_rules! build_route_method {
 
 /// Builder methods for easy route building. These allow you to chain together .get("/path", || ()) calls,
 /// quickly building a service.
-///
-/// NOTE: The methods ending in `_public` are identical (for now) to the others.
-///       In a future iteration these will allow you to restrict all routes by default,
-///       and explicitly allow certain routes for public access.
 impl WebServiceBuilder {
     build_route_method!(get:Get);
     build_route_method!(post:Post);
@@ -184,25 +179,6 @@ impl WebServiceBuilder {
     build_route_method!(post_public:Post);
     build_route_method!(delete_public:Delete);
     build_route_method!(patch_public:Patch);
-}
-
-async fn run_migration<T: GetTableDefinition + std::fmt::Debug + Clone>(
-    pool: &sqlx::Pool<sqlx::Postgres>
-) -> Result<(), tailwag_orm::Error> {
-    let table_def = T::get_table_definition();
-    let mig = Migration::<T>::compare(
-        None, // TODO: Need to get the old migration
-        &DatabaseDefinition::new_unchecked("postgres").table(table_def.clone()).into(),
-    );
-
-    if let Some(mig) = mig {
-        mig.run(pool).await?;
-        log::info!("Running migration for {}", &table_def.table_name);
-        Ok(())
-    } else {
-        log::info!("Skipping migration for {} - table is up to date!", &table_def.table_name);
-        Ok(())
-    }
 }
 
 impl WebServiceBuilder {
@@ -243,12 +219,6 @@ impl WebServiceBuilder {
         let resource_name = T::get_table_definition().table_name.clone();
         self.resources.add_resource::<T>();
         self.forms.insert(resource_name.clone(), T::get_form());
-
-        {
-            //  MIGRATIONS
-            self.migrations
-                .push(Box::new(|pool| Box::pin(async move { run_migration::<T>(&pool).await })));
-        }
 
         {
             //  BUILD THE ROUTES
@@ -337,9 +307,8 @@ impl WebServiceBuilder {
         let service = WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
-                resources: self.resources.build(),
+                resources: self.resources.build().unwrap(),
                 // routes: Arc::new(self.root_route), // No longer stored in Webservice - it's now moved to Middleware when running.
-                migrations: Arc::new(Mutex::new(self.migrations)),
                 admin_rx,
                 server_data: Arc::new(server_data),
                 consolidated_handler: build_middleware(self.root_route, self._exp_middleware),
@@ -412,19 +381,6 @@ impl WebService {
         }
     }
 
-    async fn run_migrations(
-        &self,
-        db_pool: &PgPool,
-    ) -> Result<(), crate::Error> {
-        // Run migrations
-        let mut mutex_guard = self.migrations.lock()?;
-        let migrations: MigrationRunners = mutex_guard.drain(0..).collect();
-        for migration in migrations {
-            migration(db_pool.clone()).await?;
-        }
-        Ok(())
-    }
-
     async fn connect_postgres(&self) -> Result<PgPool, crate::Error> {
         Ok(PgPoolOptions::new()
             .max_connections(4)
@@ -467,8 +423,9 @@ impl WebService {
         self.print_welcome_message();
 
         let db_pool = self.connect_postgres().await?;
-        self.run_migrations(&db_pool).await?;
         let context = self.build_context(&db_pool).await;
+
+        context.data_providers.run_migrations().await?;
 
         let mut task_scheduler = self
             .task_executor

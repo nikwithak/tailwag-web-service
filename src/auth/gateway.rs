@@ -4,6 +4,7 @@ use tailwag_orm::{
     queries::filterable_types::FilterEq,
 };
 
+use crate::application::http::route::RoutePolicy;
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHasher, PasswordVerifier,
@@ -15,7 +16,7 @@ use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use uuid::Uuid;
 
 use crate::application::{
-    http::route::{Request, RequestContext, Response},
+    http::route::{IntoResponse, Request, RequestContext, Response},
     NextFn,
 };
 
@@ -41,10 +42,31 @@ mod tailwag {
     BuildRoutes,
     tailwag::forms::macros::GetForm,
 )]
+#[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
 pub struct Account {
     id: uuid::Uuid,
     email_address: String,
+    #[serde(skip_serializing)]
     passhash: String,
+}
+
+// pub fn get_current_user(req: Request) -> Response {
+//     Response::not_implemented()
+// }
+
+pub async fn get_current_user(
+    _request: Request,
+    users: PostgresDataProvider<Account>,
+    ctx: RequestContext,
+) -> Response {
+    println!("JSKDFIOPJSDF");
+    let Some(session) = ctx.get_request_data::<Session>() else {
+        return Response::not_found();
+    };
+    let Some(user) = users.get(|u| u.id.eq(session.account_id)).await.ok().flatten() else {
+        return Response::not_found();
+    };
+    user.into_response()
 }
 
 impl tailwag::orm::data_manager::rest_api::Id for Account {
@@ -189,7 +211,7 @@ pub struct LoginResponse {
 pub async fn login(
     creds: LoginRequest,
     providers: DataSystem,
-) -> Result<LoginResponse, crate::Error> {
+) -> Result<Response, crate::Error> {
     let accounts = providers.get::<Account>().ok_or(crate::Error::NotFound)?;
     let sessions = providers.get::<Session>().ok_or(crate::Error::NotFound)?;
 
@@ -241,14 +263,19 @@ pub async fn login(
         // "_id={}; HttpOnly; Domain={}; Path={}",
         jwt,
     );
-    // TODO: Figure out how to set cookies from service response
-    // response.headers_mut().insert(
-    //     "Set-Cookie",
-    //     HeaderValue::from_bytes(cookie_header_val.as_bytes())
-    //         .expect("Failed to set cookie."),
-    // );
-    // response.into_response()
+    let response = response.into_response().with_header("Set-Cookie", _cookie_header_val);
     Ok(response)
+}
+
+pub async fn logout(
+    _req: (),
+    sessions: PostgresDataProvider<Session>,
+    ctx: RequestContext,
+) -> Response {
+    if let Some(session) = ctx.get_request_data::<Session>() {
+        sessions.delete(session.clone()).await.ok();
+    }
+    Response::ok()
 }
 
 #[derive(Serialize, Deserialize)]
