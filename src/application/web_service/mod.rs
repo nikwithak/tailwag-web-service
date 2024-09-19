@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
@@ -13,9 +13,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
-use tailwag_orm::data_definition::database_definition::DatabaseDefinition;
 use tailwag_orm::data_manager::rest_api::Id;
-use tailwag_orm::migration::Migration;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -92,20 +90,11 @@ pub struct WebService {
     task_executor: Option<TaskExecutor>,
 }
 
-type MigrationRunners = Vec<
-    Box<
-        dyn FnOnce(
-            sqlx::Pool<sqlx::Postgres>,
-        ) -> Pin<Box<dyn Future<Output = Result<(), tailwag_orm::Error>>>>,
-    >,
->;
-
 // TODO: Separate definition from config
 #[allow(private_bounds)]
 pub struct WebServiceBuilder {
     config: WebServiceConfig,
     root_route: Route,
-    migrations: MigrationRunners,
     forms: HashMap<Identifier, Form>,
     _exp_middleware: Vec<Arc<Middleware>>,
     resources: DataSystemBuilder,
@@ -132,7 +121,6 @@ impl Default for WebServiceBuilder {
                 request_timeout_seconds: 30,
             },
             resources: DataSystem::builder(),
-            migrations: Vec::new(),
             root_route: Route::default(),
             forms: HashMap::new(),
             server_data: Default::default(),

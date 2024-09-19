@@ -113,7 +113,7 @@ impl Route {
             match route.children.get(&segment.to_string()) {
                 Some(new_route) => route = new_route,
                 None => {
-                    if let Some((name, new_route)) = &route.dynamic_child {
+                    if let Some((_name, new_route)) = &route.dynamic_child {
                         request.path_params.push(segment.to_owned());
                         route = new_route
                     } else {
@@ -544,7 +544,7 @@ pub struct Response {
 
 impl From<tailwag_orm::Error> for Response {
     fn from(value: tailwag_orm::Error) -> Self {
-        log::error!("");
+        log::error!("Request errored out: {:?}", &value);
         Response::internal_server_error()
     }
 }

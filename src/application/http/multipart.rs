@@ -3,10 +3,7 @@ use std::{
     io::{BufRead, BufReader},
 };
 
-use super::{
-    headers::Headers,
-    route::{FromRequest, HttpBody},
-};
+use super::{headers::Headers, route::HttpBody};
 
 #[derive(Debug, Default)]
 pub struct MultipartPart {
