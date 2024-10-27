@@ -14,6 +14,8 @@ pub enum Error {
     InternalServerError(String),
     NotFound,
 }
+
+pub type HttpResult<T> = Result<T, Error>;
 impl<T: ToString> From<T> for Error {
     fn from(value: T) -> Self {
         Error::BadRequest(value.to_string())
