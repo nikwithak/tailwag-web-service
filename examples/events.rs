@@ -68,6 +68,7 @@ pub async fn display_event(events: PostgresDataProvider<Event>) -> Response {
     load_template("event.md.template", events.all().await.unwrap().next().unwrap())
 }
 
+// TODO: Merge this with the MIME type in `image_upload.rs`
 fn get_content_type(filename: &str) -> &'static str {
     filename
         .split('.')

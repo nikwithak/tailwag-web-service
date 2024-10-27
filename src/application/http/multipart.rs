@@ -125,12 +125,3 @@ pub trait FromMultipartPart {
     where
         Self: Sized;
 }
-
-// impl<T> FromRequest for T
-// where
-//     T: FromMultipartPart,
-// {
-//     fn from(req: super::route::Request) -> Result<Self, crate::Error> {
-//         todo!()
-//     }
-// }
