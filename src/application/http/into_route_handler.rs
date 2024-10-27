@@ -248,6 +248,35 @@ macro_rules! generate_trait_impl {
         /// This impl is made to support Result<Response, crate::Error>, enabling ? interfaces for
         /// our responses.
         ///  async fn(FromRequest, FromContext1, ..., FromContextN) -> IntoResponse;
+        impl<F, $($context_id,)* O, Fut>
+            IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* (O, (), Fut))> for F
+        where
+            F: Fn($($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            $($context_id: From<ServerContext> + Sized + 'static,)*
+            O: IntoResponse + Sized + Send + 'static,
+            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+        {
+            fn into(self) -> RouteHandler {
+                RouteHandler {
+                    handler: Box::new(move |_, ctx| {
+                        Box::pin(async move {
+                            match
+                                self(
+                                $($context_id::from(ctx.clone())),*)
+                                .await {
+                                    Ok(response) => response.into_response(),
+                                    Err(err) => err.into_response(),
+                                }
+
+                        })
+                    }),
+                }
+            }
+        }
+
+        /// This impl is made to support Result<Response, crate::Error>, enabling ? interfaces for
+        /// our responses.
+        ///  async fn(FromRequest, FromContext1, ..., FromContextN) -> IntoResponse;
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, (), Fut))> for F
         where
