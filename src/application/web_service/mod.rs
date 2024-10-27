@@ -5,6 +5,7 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
+use crate::auth::gateway::{self, extract_session};
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
 use env_logger::Env;
 use log;
@@ -104,21 +105,42 @@ pub struct WebServiceBuilder {
 
 #[cfg(debug_assertions)]
 impl Default for WebServiceBuilder {
+    /// Initializes a web service. The service configuration is pulled from Environment variables, with sensible defaults for *debug development*
+    /// for anything not specified.
+    ///
+    /// The default Tailwag Application includes the authentication module, and the CORS module.
     fn default() -> Self {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         // Load in the current `.env` file, if it exists. If it fails, who cares, the rest of the ENV should be set.
         dotenv::dotenv().ok();
         let database_conn_string = dbg!(std::env::var("DATABASE_CONN_STRING")
             .unwrap_or("postgres://postgres:postgres@127.0.0.1:5432/postgres".into()));
+        let socket_addr = dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("127.0.0.1".into()));
+        let port = dbg!(std::env::var("LISTEN_PORT").map_or(8081, |port| port
+            .parse()
+            .expect("Invalid port provided - must be an integer.")));
+        let max_threads = dbg!(std::env::var("MAX_THREADS").map_or(4, |num_threads| num_threads
+            .parse()
+            .expect("Invalid thread count provided - must be an integer.")));
+        let application_name =
+            dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("Tailwag Default Application".into()));
+        let migrate_on_init = dbg!(std::env::var("MIGRATE_ON_INIT").map_or(true, |val| val
+            .parse()
+            .expect("MIGRATE_ON_INIT must be parseable to a boolean")));
+        let request_timeout_seconds = dbg!(std::env::var("REQUEST_TIMEOUT_SECONDS")
+            .map_or(30, |val| val
+                .parse()
+                .expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")));
+
         Self {
             config: WebServiceConfig {
-                socket_addr: "0.0.0.0".to_owned(),
-                port: 8081,
-                max_threads: 4,
-                application_name: "Tailwag Default Application".into(),
-                migrate_on_init: true,
+                socket_addr,
+                port,
+                max_threads,
+                application_name,
+                migrate_on_init,
                 database_conn_string,
-                request_timeout_seconds: 30,
+                request_timeout_seconds,
             },
             resources: DataSystem::builder(),
             root_route: Route::default(),
@@ -127,9 +149,8 @@ impl Default for WebServiceBuilder {
             task_executor: Default::default(),
             _exp_middleware: Vec::new(),
         }
-        .with_resource::<Account>()
-        .with_resource::<Session>()
-        .with_middleware(cors::handle_cors)
+        .with_authentication()
+        .with_cors()
     }
 }
 
@@ -177,11 +198,13 @@ impl WebServiceBuilder {
         builder
     }
 
+    // Adds an endpoint at `/static/{}`, which will serve the static content of all files in the `static` directory.
     pub fn with_static_files(self) -> Self {
         // TODO: Move this to its own module
         self.get("/static/{path}", load_static)
     }
 
+    // Adds the CRUD endpoints for the specified type, `T`. The routes that get created are determined by `T`'s implementation of the trait  `BuidlRoutes`.
     pub fn with_resource<T>(mut self) -> Self
     where
         // Gross collection of required traits. Need to clean this up.
@@ -307,6 +330,20 @@ impl WebServiceBuilder {
             service,
             sender: admin_tx,
         }
+    }
+}
+
+impl WebServiceBuilder {
+    pub fn with_authentication(self) -> Self {
+        self.with_middleware(extract_session)
+            .with_resource::<Account>()
+            .with_resource::<Session>()
+            .post_public("/login", gateway::login)
+            .post_public("/register", gateway::register)
+    }
+
+    pub fn with_cors(self) -> Self {
+        self.with_middleware(cors::handle_cors)
     }
 }
 
