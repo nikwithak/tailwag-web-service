@@ -17,7 +17,7 @@ use tailwag_utils::{
     data_strutures::hashmap_utils::GetOrDefault, types::generic_type_map::TypeInstanceMap,
 };
 
-use crate::application::http::into_route_handler::IntoRouteHandler;
+use crate::{application::http::into_route_handler::IntoRouteHandler, Error, HttpResult};
 use crate::{
     application::http::{headers::Headers, multipart::parse_multipart_request},
     auth::gateway::Session,
@@ -114,7 +114,11 @@ impl Route {
                 Some(new_route) => route = new_route,
                 None => {
                     if let Some((_name, new_route)) = &route.dynamic_child {
-                        request.path_params.push(segment.to_owned());
+                        let decoded = match urlencoding::decode(segment) {
+                            Ok(s) => s.into_owned(),
+                            Err(e) => return Response::bad_request(),
+                        };
+                        request.path_params.push(decoded);
                         route = new_route
                     } else {
                         return Default::default();
@@ -282,7 +286,7 @@ impl Route {
             )
             .is_some()
         {
-            panic!("This route already has a handler");
+            panic!("This route ({}) already has a handler", &path);
         }
     }
 
@@ -346,6 +350,7 @@ pub enum HttpStatus {
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
+    Conflict = 409,
     NotImplemented = 501,
     IAmATeapot = 418,
     InternalServerError = 503,
@@ -370,6 +375,7 @@ impl Display for HttpStatus {
                 HttpStatus::NotImplemented => "Not Implemented",
                 HttpStatus::IAmATeapot => "I Am A Teapot",
                 HttpStatus::InternalServerError => "Internal Server Error",
+                HttpStatus::Conflict => "Conflict",
                 // _ => "Unknown",
             }
         );
@@ -570,6 +576,7 @@ impl Response {
     default_response!(not_implemented, NotImplemented);
     default_response!(internal_server_error, InternalServerError);
     default_response!(unauthorized, Unauthorized);
+    default_response!(conflict, Conflict);
     default_response!(ok, Ok);
     pub fn redirect_see_other(redirect_url: &str) -> Self {
         let mut headers = Headers::default();

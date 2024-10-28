@@ -68,6 +68,7 @@ impl TaskScheduler {
         self.task_queue.send(task_request)?;
         // .push_back((TypeId::of::<T>(), serde_json::to_string(&task_request)?));
         log::debug!("[TICKET {}] Sent task to handler", &ticket.id);
+        panic!("WHY IS THIS EVEN GBETTING CALLED????");
         Ok(ticket)
     } // TODO: Return a handle to the job ID
 }

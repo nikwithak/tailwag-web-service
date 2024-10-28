@@ -12,10 +12,28 @@ pub mod traits;
 pub enum Error {
     BadRequest(String),
     InternalServerError(String),
+    Conflict,
     NotFound,
 }
-
+pub use Error as HttpError;
 pub type HttpResult<T> = Result<T, Error>;
+
+/// Helper functions for quickly throwing errors from an API endpoint.
+impl Error {
+    pub fn bad_request<T>(msg: &str) -> HttpResult<T> {
+        Err(Error::BadRequest(msg.into()))
+    }
+    pub fn internal_server_error<T>(msg: &str) -> HttpResult<T> {
+        Err(Error::InternalServerError(msg.into()))
+    }
+    pub fn not_found<T>() -> HttpResult<T> {
+        Err(Error::NotFound)
+    }
+    pub fn conflict<T>() -> HttpResult<T> {
+        Err(Error::Conflict)
+    }
+}
+
 impl<T: ToString> From<T> for Error {
     fn from(value: T) -> Self {
         Error::BadRequest(value.to_string())
@@ -40,8 +58,41 @@ impl IntoResponse for crate::Error {
                 log::error!("[INTERNAL SERVER ERROR]: {}", &msg);
                 Response::internal_server_error()
             },
+            Error::Conflict => {
+                log::warn!("[CONFLICT]");
+                Response::conflict()
+            },
         }
     }
 }
 
 pub type ResponseResult<T> = core::result::Result<T, crate::Error>;
+
+pub mod option_utils {
+    use crate::{HttpError, HttpResult};
+
+    trait Locked {}
+    impl<T> Locked for Option<T> {}
+    #[allow(private_bounds)]
+    pub trait OrError<T>
+    where
+        Self: Locked,
+    {
+        fn or_404(self) -> HttpResult<T>;
+        fn or_400(
+            self,
+            msg: &str,
+        ) -> HttpResult<T>;
+    }
+    impl<T> OrError<T> for Option<T> {
+        fn or_404(self) -> HttpResult<T> {
+            self.ok_or(HttpError::NotFound)
+        }
+        fn or_400(
+            self,
+            msg: &str,
+        ) -> HttpResult<T> {
+            self.ok_or(HttpError::BadRequest(msg.into()))
+        }
+    }
+}

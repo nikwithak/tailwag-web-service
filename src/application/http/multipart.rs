@@ -3,7 +3,12 @@ use std::{
     io::{BufRead, BufReader},
 };
 
-use super::{headers::Headers, route::HttpBody};
+use crate::HttpResult;
+
+use super::{
+    headers::Headers,
+    route::{HttpBody, Request},
+};
 
 #[derive(Debug, Default)]
 pub struct MultipartPart {
@@ -27,7 +32,8 @@ enum MultipartParserState {
     Done,
 }
 
-pub type MulitpartParts = Vec<MultipartPart>;
+pub type MultipartParts = HashMap<String, MultipartPart>;
+
 #[derive(Default)]
 struct MultipartParser {
     parts: HashMap<String, MultipartPart>,
@@ -124,4 +130,16 @@ pub trait FromMultipartPart {
     fn from_multipart_part(part: MultipartPart) -> Option<Self>
     where
         Self: Sized;
+}
+
+pub trait TryGetMultipartParts {
+    fn try_get_multipart_parts(self) -> HttpResult<MultipartParts>;
+}
+impl TryGetMultipartParts for Request {
+    fn try_get_multipart_parts(self) -> HttpResult<MultipartParts> {
+        match self.body {
+            HttpBody::Multipart(parts) => Ok(parts),
+            _ => crate::HttpError::bad_request("File uploads require a 'multipart' content-type."),
+        }
+    }
 }
