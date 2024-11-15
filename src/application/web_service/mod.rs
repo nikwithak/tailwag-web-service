@@ -317,6 +317,10 @@ impl WebServiceBuilder {
             consolidated_fn
         } //
 
+        // Print all the configured routes before building.
+        // TODO: Move this to on start.
+        self.root_route.print_all_routes();
+
         let service = WebService {
             inner: std::sync::Arc::new(WebServiceInner {
                 config: self.config,
@@ -328,6 +332,7 @@ impl WebServiceBuilder {
             }),
             task_executor: Some(self.task_executor),
         };
+
         WebServiceBuildResponse {
             service,
             sender: admin_tx,

@@ -8,7 +8,7 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
-use tailwag_macros::Deref;
+use tailwag_macros::{Deref, Display};
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
     queries::Insertable,
@@ -17,7 +17,7 @@ use tailwag_utils::{
     data_strutures::hashmap_utils::GetOrDefault, types::generic_type_map::TypeInstanceMap,
 };
 
-use crate::{application::http::into_route_handler::IntoRouteHandler, Error, HttpResult};
+use crate::application::http::into_route_handler::IntoRouteHandler;
 use crate::{
     application::http::{headers::Headers, multipart::parse_multipart_request},
     auth::gateway::Session,
@@ -34,6 +34,19 @@ pub enum RoutePolicy {
     #[allow(unused)]
     RequireAuthentication,
     RequireRole(String),
+}
+
+impl Display for RoutePolicy {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self {
+            RoutePolicy::Public => write!(f, "PUBLIC"),
+            RoutePolicy::RequireAuthentication => write!(f, "AUTHENTICATED"),
+            RoutePolicy::RequireRole(role) => write!(f, "ROLE: {role}"),
+        }
+    }
 }
 
 pub trait RouteAuthorizationPolicy {
@@ -101,6 +114,42 @@ impl std::fmt::Debug for Route {
 }
 
 impl Route {
+    /// Prints to stdout the route tree for all configured routes.
+    fn print_routes(
+        &self,
+        prefix: &str,
+    ) {
+        for (method, handler) in &self.handlers {
+            let method = method.to_string().to_uppercase();
+            let padding = " ".repeat(8 - method.len());
+
+            let policy = format!("{}", &handler._policy);
+            let policy_padding = " ".repeat(20 - policy.len());
+            log::info!("   {policy}{policy_padding}{method}{padding}{prefix}/");
+        }
+        for (path, route) in &self.children {
+            let new_prefix = format!("{prefix}/{path}");
+            route.print_routes(&new_prefix);
+        }
+        if let Some((dyn_string, route)) = &self.dynamic_child {
+            let new_prefix = format!("{prefix}/{{{dyn_string}}}");
+            route.print_routes(&new_prefix);
+        }
+    }
+    pub fn print_all_routes(&self) {
+        log::info!("\n\n");
+        log::info!("====================================");
+        log::info!("         ALL CONFIGURED ROUTES");
+        log::info!("====================================");
+        self.print_routes("");
+        log::info!("====================================");
+        log::info!("      END OF CONFIGURED ROUTES");
+        log::info!("====================================");
+        log::info!("\n\n");
+    }
+}
+
+impl Route {
     pub async fn handle(
         &self,
         mut request: Request,
@@ -116,7 +165,7 @@ impl Route {
                     if let Some((_name, new_route)) = &route.dynamic_child {
                         let decoded = match urlencoding::decode(segment) {
                             Ok(s) => s.into_owned(),
-                            Err(e) => return Response::bad_request(),
+                            Err(_e) => return Response::bad_request(),
                         };
                         request.path_params.push(decoded);
                         route = new_route
@@ -249,15 +298,15 @@ impl Route {
         let parts = path.split('/');
         let mut route = self;
         for part in parts.filter(|p| !p.is_empty()) {
-            if Regex::new("^\\{[a-zA-Z0-9_-]*\\}$") // /route/{this_part_gets_matched}/
+            if let Some(captures) = Regex::new("^\\{(?<name>[a-zA-Z0-9_-]*)\\}$") // /route/{this_part_gets_matched}/
                 .expect("Something wrong with regex")
-                .is_match(part)
+                .captures(part)
             {
                 // For now, only one dynamic route is allowed per route.
                 // Reduces ambiguity (and lets me get away with this silly hack)
                 // In the future, I'll add some regex support (maybe?) or at least a basic extraction syntax
                 if route.dynamic_child.is_none() {
-                    route.dynamic_child = Some(("unnamed".to_string(), Box::default()));
+                    route.dynamic_child = Some((captures["name"].to_string(), Box::default()));
                 }
                 let (name, child_route) =
                     route.dynamic_child.as_mut().expect("Missing route that was just added.");
@@ -313,7 +362,7 @@ impl Route {
     }
 }
 
-#[derive(Eq, PartialEq, Hash, Debug)]
+#[derive(Eq, PartialEq, Hash, Debug, Display)]
 pub enum HttpMethod {
     Get,
     Post,
