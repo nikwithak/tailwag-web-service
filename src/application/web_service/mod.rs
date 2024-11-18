@@ -458,7 +458,6 @@ impl WebService {
         let context = self.build_context(&db_pool).await;
 
         context.data_providers.run_migrations().await?;
-
         let mut task_scheduler = self
             .task_executor
             .as_ref()
