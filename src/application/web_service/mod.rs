@@ -7,7 +7,6 @@ use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 use crate::application::http::into_route_handler::IntoRouteHandler;
 use crate::auth::gateway::{self, extract_session};
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
-use crate::Error;
 use env_logger::Env;
 use log;
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,6 @@ use tailwag_orm::{
     queries::{Deleteable, Updateable},
 };
 use tailwag_utils::types::generic_type_map::TypeInstanceMap;
-use uuid::Uuid;
 
 use crate::application::http::route::{RequestContext, ServerContext};
 // use crate::application::threads::ThreadPool;
@@ -35,7 +33,7 @@ use crate::{
     traits::rest_api::BuildRoutes,
 };
 
-use super::http::route::{PathString, Request, Response};
+use super::http::route::{Request, Response};
 use super::middleware::cors::{self};
 use super::static_files::load_static;
 use super::{http::route::Route, stats::RunResult};
