@@ -717,6 +717,9 @@ impl RequestContext {
             request_data: Default::default(),
         }
     }
+    pub(crate) fn server_context(&self) -> ServerContext {
+        self.server_context.clone()
+    }
 }
 
 impl RequestContext {
@@ -742,15 +745,21 @@ impl From<RequestContext> for ServerContext {
     }
 }
 
+impl From<ServerContext> for DataSystem {
+    fn from(ctx: ServerContext) -> Self {
+        ctx.data_providers.clone()
+    }
+}
+
 impl From<&RequestContext> for ServerContext {
     fn from(val: &RequestContext) -> Self {
         val.server_context.clone()
     }
 }
 
-impl From<ServerContext> for DataSystem {
-    fn from(ctx: ServerContext) -> Self {
-        ctx.data_providers.clone()
+impl From<&RequestContext> for DataSystem {
+    fn from(ctx: &RequestContext) -> Self {
+        ctx.server_context.data_providers.clone()
     }
 }
 
@@ -764,10 +773,17 @@ impl<T: Clone + Send + Sync + 'static> Deref for ServerData<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
-    fn from(value: ServerContext) -> Self {
+impl<T: Clone + Send + Sync + 'static> From<&RequestContext> for ServerData<T> {
+    fn from(ctx: &RequestContext) -> Self {
         // TODO: Use TryFrom instead
-        Self(value.server_data.get::<T>().unwrap().clone())
+        Self(ctx.server_context.server_data.get::<T>().unwrap().clone())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
+    fn from(ctx: ServerContext) -> Self {
+        // TODO: Use TryFrom instead
+        Self(ctx.server_data.get::<T>().unwrap().clone())
     }
 }
 
@@ -776,6 +792,18 @@ impl<T: Insertable + Clone + Send + Sync + 'static> From<ServerContext>
 {
     fn from(ctx: ServerContext) -> Self {
         ctx.data_providers
+            .get::<T>()
+            .clone()
+            .expect("Attempted to use DataProvider that does not exist.")
+    }
+}
+
+impl<T: Insertable + Clone + Send + Sync + 'static> From<&RequestContext>
+    for PostgresDataProvider<T>
+{
+    fn from(ctx: &RequestContext) -> Self {
+        ctx.server_context
+            .data_providers
             .get::<T>()
             .clone()
             .expect("Attempted to use DataProvider that does not exist.")

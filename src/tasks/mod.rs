@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 
 use serde::Serialize;
 
-use crate::application::http::route::ServerContext;
+use crate::application::http::route::{RequestContext, ServerContext};
 
 use self::runner::{TaskError, TaskRequest};
 
@@ -74,8 +74,8 @@ impl TaskScheduler {
 
 // impl
 
-impl From<ServerContext> for TaskScheduler {
-    fn from(value: ServerContext) -> Self {
-        value.server_data.get::<Self>().unwrap().clone()
+impl From<&RequestContext> for TaskScheduler {
+    fn from(ctx: &RequestContext) -> Self {
+        ctx.server_context().server_data.get::<Self>().unwrap().clone()
     }
 }

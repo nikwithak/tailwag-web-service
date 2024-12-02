@@ -145,7 +145,7 @@ macro_rules! generate_trait_impl {
         where
             F: Fn(I, $($context_id,)* RequestContext) -> Fut + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
             Fut: Future<Output = O> + 'static + Send,
         {
@@ -158,7 +158,7 @@ macro_rules! generate_trait_impl {
                             };
 
                             self(
-                                req, $($context_id::from(ctx.clone()),)* ctx)
+                                req, $($context_id::from(&ctx),)* ctx)
                                 .await
                                 .into_response()
                         })
@@ -173,7 +173,7 @@ macro_rules! generate_trait_impl {
         where
             F: Fn(I, $($context_id),*, RequestContext) -> O + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
         {
             fn into(self) -> RouteHandler {
@@ -184,7 +184,7 @@ macro_rules! generate_trait_impl {
                             let Ok(req) = I::from(req) else {
                                 return Response::bad_request();
                             };
-                            self(req, $($context_id::from(ctx.clone()),)* ctx)
+                            self(req, $($context_id::from(&ctx),)* ctx)
                                 .into_response()
                         })
                     }),
@@ -198,7 +198,7 @@ macro_rules! generate_trait_impl {
         where
             F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
             Fut: Future<Output = O> + 'static + Send,
         {
@@ -211,7 +211,7 @@ macro_rules! generate_trait_impl {
                             };
 
                             self(
-                                req, $($context_id::from(ctx.clone())),*)
+                                req, $($context_id::from(&ctx)),*)
                                 .await
                                 .into_response()
                         })
@@ -226,7 +226,7 @@ macro_rules! generate_trait_impl {
         where
             F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
         {
             fn into(self) -> RouteHandler {
@@ -237,7 +237,7 @@ macro_rules! generate_trait_impl {
                             let Ok(req) = I::from(req) else {
                                 return Response::bad_request();
                             };
-                            self(req, $($context_id::from(ctx.clone())),*)
+                            self(req, $($context_id::from(&ctx)),*)
                                 .into_response()
                         })
                     }),
@@ -252,7 +252,7 @@ macro_rules! generate_trait_impl {
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* (O, (), Fut))> for F
         where
             F: Fn($($context_id),*) -> Fut + Send + Copy + 'static + Sync,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
             Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
         {
@@ -262,7 +262,7 @@ macro_rules! generate_trait_impl {
                         Box::pin(async move {
                             match
                                 self(
-                                $($context_id::from(ctx.clone())),*)
+                                $($context_id::from(&ctx)),*)
                                 .await {
                                     Ok(response) => response.into_response(),
                                     Err(err) => err.into_response(),
@@ -282,7 +282,7 @@ macro_rules! generate_trait_impl {
         where
             F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
             I: FromRequest + Sized + 'static,
-            $($context_id: From<ServerContext> + Sized + 'static,)*
+            $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
             Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
         {
@@ -296,7 +296,7 @@ macro_rules! generate_trait_impl {
 
                             match
                                 self(
-                                req, $($context_id::from(ctx.clone())),*)
+                                req, $($context_id::from(&ctx)),*)
                                 .await {
                                     Ok(response) => response.into_response(),
                                     Err(err) => err.into_response(),
@@ -320,14 +320,14 @@ pub struct Nothing3Async;
 impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F
 where
     F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
-    C: From<ServerContext> + Sized + 'static,
+    C: for<'a> From<&'a RequestContext> + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
     Fut: Future<Output = O> + 'static + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |_req, ctx| {
-                Box::pin(async move { self(C::from(ctx.clone())).await.into_response() })
+                Box::pin(async move { self(C::from(&ctx)).await.into_response() })
             }),
         }
     }
@@ -336,13 +336,13 @@ pub struct Nothing3Sync;
 impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Sync, (C, O, Fut)> for F
 where
     F: Fn(C) -> O + Send + Copy + 'static + Sync,
-    C: From<ServerContext> + Sized + 'static,
+    C: for<'a> From<&'a RequestContext> + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
             handler: Box::new(move |_req, ctx| {
-                Box::pin(async move { self(C::from(ctx.clone())).into_response() })
+                Box::pin(async move { self(C::from(&ctx)).into_response() })
             }),
         }
     }
