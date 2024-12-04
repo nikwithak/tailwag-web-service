@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use std::future::Future;
 
-use crate::application::http::route::{FromRequest, IntoResponse, RouteHandler, ServerContext};
+use crate::application::http::route::{FromRequest, IntoResponse, RouteHandler};
 
 use super::route::{RequestContext, Response};
 

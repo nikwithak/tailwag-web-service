@@ -92,10 +92,7 @@ impl Headers {
 
         // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
         while stream.read_line(&mut line)? > 2 {
-            println!("LINE: {}", &line);
             headers.insert_parsed(&line)?;
-
-            println!("{}", &line);
             line = String::new();
         }
         Ok(dbg!(headers))

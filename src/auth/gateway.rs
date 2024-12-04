@@ -1,4 +1,4 @@
-use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq,
@@ -31,9 +31,9 @@ mod tailwag {
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
     Default,
-    Deserialize,                        // Needed for API de/serialization
-    Serialize,                          // Needed for API de/serialization
-    sqlx::FromRow,                      // Needed for DB connectivity
+    Deserialize, // Needed for API de/serialization
+    Serialize,   // Needed for API de/serialization
+    // sqlx::FromRow,                      // Needed for DB connectivity
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,
     tailwag_macros::Updateable,
@@ -43,11 +43,20 @@ mod tailwag {
     tailwag::forms::macros::GetForm,
 )]
 #[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
-pub struct Account {
+#[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+pub struct AppUser {
     id: uuid::Uuid,
     email_address: String,
     #[serde(skip_serializing)]
     passhash: String,
+    // TEMPORARY - this flag should later be replaced with an actual RBAC / ABAC system.
+    is_admin: bool,
+}
+
+impl AppUser {
+    pub fn is_admin(&self) -> bool {
+        self.is_admin
+    }
 }
 
 // pub fn get_current_user(req: Request) -> Response {
@@ -56,10 +65,9 @@ pub struct Account {
 
 pub async fn get_current_user(
     _request: Request,
-    users: PostgresDataProvider<Account>,
+    users: PostgresDataProvider<AppUser>,
     ctx: RequestContext,
 ) -> Response {
-    println!("JSKDFIOPJSDF");
     let Some(session) = ctx.get_request_data::<Session>() else {
         return Response::not_found();
     };
@@ -69,7 +77,7 @@ pub async fn get_current_user(
     user.into_response()
 }
 
-impl tailwag::orm::data_manager::rest_api::Id for Account {
+impl tailwag::orm::data_manager::rest_api::Id for AppUser {
     fn id(&self) -> &uuid::Uuid {
         &self.id
     }
@@ -79,9 +87,9 @@ impl tailwag::orm::data_manager::rest_api::Id for Account {
     Clone, // Needed to be able to create an editable version from an Arc<Brewery> without affecting the saved data.
     Debug,
     Default,
-    Deserialize,   // Needed for API de/serialization
-    Serialize,     // Needed for API de/serialization
-    sqlx::FromRow, // Needed for DB connectivity
+    Deserialize, // Needed for API de/serialization
+    Serialize,   // Needed for API de/serialization
+    // sqlx::FromRow, // Needed for DB connectivity
     BuildRoutes,
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,
@@ -90,6 +98,7 @@ impl tailwag::orm::data_manager::rest_api::Id for Account {
     tailwag_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
+#[policy(RoutePolicy::RequireRole("Admin".to_string()))]
 pub struct Session {
     id: uuid::Uuid,
     pub account_id: uuid::Uuid,
@@ -101,11 +110,6 @@ impl tailwag::orm::data_manager::rest_api::Id for Session {
         &self.id
     }
 }
-impl Session {
-    pub fn roles(&self) -> &HashSet<UserRole> {
-        todo!("Roles not implemented yet.")
-    }
-}
 
 pub type UserRole = String;
 
@@ -113,7 +117,7 @@ pub type UserRole = String;
 pub enum AccountType {
     #[default]
     Anonymous, // Public
-    Authenticated(Account),
+    Authenticated(AppUser),
 }
 
 pub struct AuthorizationGateway;
@@ -212,7 +216,7 @@ pub async fn login(
     creds: LoginRequest,
     providers: DataSystem,
 ) -> Result<Response, crate::Error> {
-    let accounts = providers.get::<Account>().ok_or(crate::Error::NotFound)?;
+    let accounts = providers.get::<AppUser>().ok_or(crate::Error::NotFound)?;
     let sessions = providers.get::<Session>().ok_or(crate::Error::NotFound)?;
 
     let account = accounts
@@ -228,7 +232,7 @@ pub async fn login(
         creds.password.as_bytes(),
         &argon2::PasswordHash::new(&account.passhash).unwrap(),
     )?;
-    let account = Account {
+    let account = AppUser {
         passhash: "".into(),
         // roles: vec![AuthorizationRole::Admin],
         ..account
@@ -289,15 +293,16 @@ pub struct RegisterResponse {
 }
 pub async fn register(
     request: RegisterRequest,
-    accounts: PostgresDataProvider<Account>,
+    accounts: PostgresDataProvider<AppUser>,
 ) -> Option<RegisterResponse> {
     let salt = &SaltString::generate(&mut OsRng);
     // TODO: Error instead of Option
     let passhash = Argon2::default().hash_password(request.password.as_bytes(), salt).ok()?;
     let account = accounts
-        .create(AccountCreateRequest {
+        .create(AppUserCreateRequest {
             email_address: request.email_address,
             passhash: passhash.to_string(),
+            is_admin: false,
         })
         .await
         // TODO: Error instead of Option

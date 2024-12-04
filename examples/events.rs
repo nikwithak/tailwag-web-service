@@ -18,7 +18,7 @@ mod tailwag {
     Default,
     serde::Deserialize,
     serde::Serialize,
-    sqlx::FromRow,
+    // sqlx::FromRow,
     tailwag::macros::GetTableDefinition,
     tailwag::macros::Insertable,
     tailwag::macros::Updateable,

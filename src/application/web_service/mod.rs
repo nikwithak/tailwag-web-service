@@ -29,7 +29,7 @@ use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 use crate::application::http::route::{RequestContext, ServerContext};
 // use crate::application::threads::ThreadPool;
 use crate::{
-    auth::gateway::{Account, Session},
+    auth::gateway::{AppUser, Session},
     traits::rest_api::BuildRoutes,
 };
 
@@ -341,7 +341,7 @@ impl WebServiceBuilder {
 impl WebServiceBuilder {
     pub fn with_authentication(self) -> Self {
         self.with_middleware(extract_session)
-            .with_resource::<Account>()
+            .with_resource::<AppUser>()
             .with_resource::<Session>()
             .post_public("/login", gateway::login)
             .post_public("/register", gateway::register)

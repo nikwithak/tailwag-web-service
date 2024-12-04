@@ -10,14 +10,15 @@ use std::{
 };
 use tailwag_macros::{Deref, Display};
 use tailwag_orm::{
-    data_definition::exp_data_system::DataSystem, data_manager::PostgresDataProvider,
-    queries::Insertable,
+    data_definition::exp_data_system::DataSystem,
+    data_manager::{traits::DataProvider, PostgresDataProvider},
+    queries::{filterable_types::FilterEq, Insertable},
 };
 use tailwag_utils::{
     data_strutures::hashmap_utils::GetOrDefault, types::generic_type_map::TypeInstanceMap,
 };
 
-use crate::application::http::into_route_handler::IntoRouteHandler;
+use crate::{application::http::into_route_handler::IntoRouteHandler, auth::gateway::AppUser};
 use crate::{
     application::http::{headers::Headers, multipart::parse_multipart_request},
     auth::gateway::Session,
@@ -27,7 +28,7 @@ use crate::{
 
 pub type RoutePath = String;
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RoutePolicy {
     #[default]
     Public,
@@ -178,7 +179,7 @@ impl Route {
 
         if let Some(future) = route.handlers.get(&request.method) {
             //TODO: Verify policy
-            if is_authorized(&future._policy, &context) {
+            if is_authorized(&future._policy, &context).await {
                 future.call(request, context).await
             } else {
                 Response::default()
@@ -189,7 +190,7 @@ impl Route {
     }
 }
 
-fn is_authorized(
+async fn is_authorized(
     policy: &RoutePolicy,
     ctx: &RequestContext,
 ) -> bool {
@@ -202,9 +203,20 @@ fn is_authorized(
                 true
             })
         },
-        RoutePolicy::RequireRole(role) => ctx
-            .get_request_data::<Session>()
-            .map_or(false, |sess| sess.roles().contains(role)),
+        RoutePolicy::RequireRole(role) => {
+            // TODO: THis needs to be re-worked when Roles are addressed. For now, this only works for the
+            // `Admin` role, and uses a hardcoded boolean flag instead of actual roles.
+            let Some(users) = ctx.get::<AppUser>() else {
+                return false;
+            };
+            let session = ctx.get_request_data::<Session>(); //map_or(false, |sess| todo!())
+            let Some(user_id) = session.map(|sess| sess.account_id) else {
+                return false;
+            };
+            let user = users.get(|u| u.id.eq(user_id)).await.ok().flatten();
+            // Hacked together - if "admin" is the requested role, and the user is an admin, then and only then will this succeed.
+            user.map_or(false, |u| u.is_admin()) && role.to_lowercase() == "admin"
+        },
     }
 }
 

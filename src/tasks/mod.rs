@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 
 use serde::Serialize;
 
-use crate::application::http::route::{RequestContext, ServerContext};
+use crate::application::http::route::RequestContext;
 
 use self::runner::{TaskError, TaskRequest};
 
