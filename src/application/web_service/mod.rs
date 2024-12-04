@@ -5,16 +5,23 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
-use crate::auth::gateway::{self, extract_session};
+use crate::auth::gateway::{self, extract_session, AppUserCreateRequest};
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
+use argon2::password_hash::SaltString;
+use argon2::Argon2;
+use argon2::PasswordHasher;
 use env_logger::Env;
 use log;
+use rand::distributions::Alphanumeric;
+use rand::rngs::OsRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
 use tailwag_orm::data_manager::rest_api::Id;
+use tailwag_orm::data_manager::traits::DataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -456,6 +463,32 @@ impl WebService {
         let context = self.build_context(&db_pool).await;
 
         context.data_providers.run_migrations().await?;
+        // Create root user, if none exits & one is configured.
+        if let Some(users) = context.data_providers.get::<AppUser>() {
+            if let None = users.all().await?.next() {
+                // No users exist. Create a default user.
+                let email_address =
+                    std::env::var("CREATE_ADMIN_USER_EMAIL").unwrap_or("root@localhost".into());
+                log::warn!("CREATING ADMIN USER WITH EMAIL {}", &email_address);
+                let password = std::env::var("CREATE_ADMIN_USER_PASSWORD").unwrap_or_else(|_| {
+                    let mut rng = rand::thread_rng();
+                    let password = (0..24).map(|_| rng.sample(&Alphanumeric) as char).collect();
+                    log::warn!("CREATING ADMIN USER WITH PASSWORD {}", &password);
+                    log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                    log::warn!("!!! CHANGE THIS PASSWORD !!!");
+                    log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                    password
+                });
+                users
+                    .create(AppUserCreateRequest {
+                        email_address,
+                        password,
+                        is_admin: true,
+                    })
+                    .await?;
+            }
+        }
+
         let mut task_scheduler = self
             .task_executor
             .as_ref()

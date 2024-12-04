@@ -94,7 +94,7 @@ macro_rules! test_hurl_file {
 #[test]
 fn run_hurl_tests() {
     // I did a quick hack-through to add a signal we can use to kill the server gracefully.
-    // It's a condition on the while loop listneing for new requests - will only fire when another request
+    // It's a condition on the while loop listening for new requests - will only fire when another request
     // is received after sending the kill switch.
     let kill_signal_cell = Arc::new(OnceLock::new());
     let ksc = kill_signal_cell.clone();

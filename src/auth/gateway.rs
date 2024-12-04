@@ -44,6 +44,7 @@ mod tailwag {
 )]
 #[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
 #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+#[create_type(AppUserCreateRequest)]
 pub struct AppUser {
     id: uuid::Uuid,
     email_address: String,
@@ -51,6 +52,30 @@ pub struct AppUser {
     passhash: String,
     // TEMPORARY - this flag should later be replaced with an actual RBAC / ABAC system.
     is_admin: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct AppUserCreateRequest {
+    pub email_address: String,
+    pub password: String,
+    pub is_admin: bool,
+}
+impl Into<AppUser> for AppUserCreateRequest {
+    fn into(self) -> AppUser {
+        AppUser {
+            id: Uuid::new_v4(),
+            email_address: self.email_address,
+            is_admin: self.is_admin,
+            passhash: {
+                let salt = &SaltString::generate(&mut OsRng);
+                let passhash = Argon2::default()
+                    .hash_password(self.password.as_bytes(), salt)
+                    .expect("Failed to hash password - this should not happen")
+                    .to_string();
+                passhash
+            },
+        }
+    }
 }
 
 impl AppUser {
@@ -223,9 +248,11 @@ pub async fn login(
         .with_filter(|acct| acct.email_address.eq(&creds.email_address))
         .execute()
         .await
-        .ok()
+        .unwrap()
+        // .ok()
         // TODO: Need to update get() to ensure only one exists
-        .and_then(|mut vec| vec.pop())
+        // .and_then(|mut vec| vec.pop())
+        .pop()
         .ok_or(crate::Error::NotFound)?;
 
     argon2::Argon2::default().verify_password(
@@ -295,14 +322,11 @@ pub async fn register(
     request: RegisterRequest,
     accounts: PostgresDataProvider<AppUser>,
 ) -> Option<RegisterResponse> {
-    let salt = &SaltString::generate(&mut OsRng);
-    // TODO: Error instead of Option
-    let passhash = Argon2::default().hash_password(request.password.as_bytes(), salt).ok()?;
     let account = accounts
         .create(AppUserCreateRequest {
             email_address: request.email_address,
-            passhash: passhash.to_string(),
             is_admin: false,
+            password: request.password,
         })
         .await
         // TODO: Error instead of Option
