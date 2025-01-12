@@ -44,23 +44,23 @@ where
 {
     fn send_email(
         &mut self,
-        subject: String,
-        body: String,
-        recipient: String,
+        subject: impl ToString,
+        body: impl ToString,
+        recipient: impl ToString,
     ) -> Result<Ticket, TaskError>;
 }
 impl Locked for TaskScheduler {}
 impl SendEmail for TaskScheduler {
     fn send_email(
         &mut self,
-        subject: String,
-        body: String,
-        recipient: String,
+        subject: impl ToString,
+        body: impl ToString,
+        recipient: impl ToString,
     ) -> Result<Ticket, TaskError> {
         self.enqueue(SendEmailEvent {
-            subject,
-            body,
-            recipient,
+            subject: subject.to_string(),
+            body: body.to_string(),
+            recipient: recipient.to_string(),
         })
     }
 }

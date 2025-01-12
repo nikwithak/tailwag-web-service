@@ -12,9 +12,11 @@ pub mod traits;
 pub enum Error {
     BadRequest(String),
     InternalServerError(String),
+    TaskSchedculingError(TaskError),
     Conflict,
     NotFound,
 }
+use tasks::runner::TaskError;
 pub use Error as HttpError;
 pub type HttpResult<T> = Result<T, Error>;
 
@@ -40,6 +42,12 @@ impl<T: ToString> From<T> for Error {
     }
 }
 
+impl From<TaskError> for Error {
+    fn from(value: TaskError) -> Self {
+        Error::TaskSchedculingError(value)
+    }
+}
+
 // impl From<tailwag_orm::Error> for Error {
 //     fn from(value: tailwag_orm::Error) -> Self {
 //         todo!()
@@ -61,6 +69,10 @@ impl IntoResponse for crate::Error {
             Error::Conflict => {
                 log::warn!("[CONFLICT]");
                 Response::conflict()
+            },
+            Error::TaskSchedculingError(task_error) => {
+                log::error!("[TASK SCHEDULING ERROR]: {:?}", task_error);
+                Response::internal_server_error()
             },
         }
     }
