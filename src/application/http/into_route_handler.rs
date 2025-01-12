@@ -27,7 +27,7 @@ pub trait IntoRouteHandler<F, Tag, IO> {
 }
 impl<F, I, O> IntoRouteHandler<F, RouteArgsStaticRequest, (I, O)> for F
 where
-    F: Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
+    F: Fn(I) -> Pin<Box<dyn Sync + Send + 'static + std::future::Future<Output = O>>>
         + Send
         + Sync
         + Copy
@@ -97,10 +97,10 @@ where
 pub struct RouteArgsNoContextAsync;
 impl<F, I, O, Fut> IntoRouteHandler<F, RouteArgsNoContextAsync, (F, I, (O, Fut))> for F
 where
-    F: Fn(I) -> Fut + Send + Copy + 'static + Sync,
+    F: Fn(I) -> Fut + Sync + Send + Copy + 'static + Sync,
     I: FromRequest + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
-    Fut: Future<Output = O> + 'static + Send,
+    Fut: Future<Output = O> + 'static + Sync + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
@@ -147,7 +147,7 @@ macro_rules! generate_trait_impl {
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = O> + 'static + Send,
+            Fut: Future<Output = O> + 'static +Sync +  Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -200,7 +200,7 @@ macro_rules! generate_trait_impl {
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = O> + 'static + Send,
+            Fut: Future<Output = O> + 'static + Sync + Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -254,7 +254,7 @@ macro_rules! generate_trait_impl {
             F: Fn($($context_id),*) -> Fut + Send + Copy + 'static + Sync,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+            Fut: Future<Output = Result<O, crate::Error>> +Sync +  'static + Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -284,7 +284,7 @@ macro_rules! generate_trait_impl {
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+            Fut: Future<Output = Result<O, crate::Error>> + 'static + Sync + Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -322,7 +322,7 @@ where
     F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
     C: for<'a> From<&'a RequestContext> + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
-    Fut: Future<Output = O> + 'static + Send,
+    Fut: Future<Output = O> + 'static + Sync + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {

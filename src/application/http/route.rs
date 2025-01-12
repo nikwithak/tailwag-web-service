@@ -451,7 +451,7 @@ type RouteHandlerInner = Box<
         + Fn(
             Request,
             RequestContext,
-        ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
+        ) -> Pin<Box<dyn Send + Sync + 'static + std::future::Future<Output = Response>>>,
 >;
 pub struct RouteHandler {
     pub(crate) handler: RouteHandlerInner,

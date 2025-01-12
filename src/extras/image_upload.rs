@@ -76,14 +76,14 @@ mod tailwag {
     tailwag::macros::Updateable,
     tailwag::macros::Deleteable,
     tailwag::macros::Filterable,
-    tailwag::macros::BuildRoutes,
+    // tailwag::macros::BuildRoutes,
     tailwag::macros::Id,
     tailwag::macros::Display,
     tailwag::forms::macros::GetForm,
 )]
 #[create_type(ImageMetadata)]
-#[post(save_image)]
-#[patch(update_image_md)]
+// #[post(save_image)]
+// #[patch(update_image_md)]
 // #[views(("/image/{id}", load_image))]
 pub struct ImageMetadata {
     pub id: Uuid,

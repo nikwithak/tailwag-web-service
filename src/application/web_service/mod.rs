@@ -22,6 +22,8 @@ use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::data_manager::traits::DataProvider;
+use tailwag_orm::data_manager::PostgresDataProvider;
+use tailwag_orm::object_management::insert::InsertStatement;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -51,12 +53,14 @@ pub enum ApplicationError {
     Error,
 }
 
-pub type Middleware = dyn Fn(
-    Request,
-    RequestContext,
-    // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
-    Arc<NextFn>,
-) -> Pin<Box<dyn Future<Output = Response>>>;
+pub type Middleware = dyn Send
+    + Sync
+    + Fn(
+        Request,
+        RequestContext,
+        // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
+        Arc<NextFn>,
+    ) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>;
 // ttype NextFn = dyn 'static + n(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 pub type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 
@@ -80,22 +84,25 @@ pub enum AdminActions {
     KillServer,
 }
 
-type HandlerFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
+type HandlerFn = dyn Send
+    + Sync
+    + Fn(Request, RequestContext) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>;
 #[allow(private_bounds)]
+#[derive(Clone)]
 pub struct WebServiceInner {
-    config: WebServiceConfig,
+    config: Arc<WebServiceConfig>,
     consolidated_handler: Arc<HandlerFn>, // TODO / IDEA: Maybe make this just a "RequestHandler" fn, instead of "handle request"?
     // routes: Arc<Route>,
     resources: UnconnectedDataSystem,
     server_data: Arc<TypeInstanceMap>,
-    admin_rx: Receiver<AdminActions>,
 }
 
 #[derive(tailwag_macros::Deref)]
 pub struct WebService {
     #[deref]
-    inner: std::sync::Arc<WebServiceInner>,
+    inner: WebServiceInner,
     task_executor: Option<TaskExecutor>,
+    admin_rx: Receiver<AdminActions>,
 }
 
 // TODO: Separate definition from config
@@ -110,7 +117,7 @@ pub struct WebServiceBuilder {
     task_executor: TaskExecutor,
 }
 
-#[cfg(debug_assertions)]
+// #[cfg(debug_assertions)]
 impl Default for WebServiceBuilder {
     /// Initializes a web service. The service configuration is pulled from Environment variables, with sensible defaults for *debug development*
     /// for anything not specified.
@@ -156,8 +163,8 @@ impl Default for WebServiceBuilder {
             task_executor: Default::default(),
             _exp_middleware: Vec::new(),
         }
-        .with_authentication()
-        .with_cors()
+        // .with_authentication()
+        // .with_cors()
     }
 }
 
@@ -268,12 +275,14 @@ impl WebServiceBuilder {
     pub fn with_middleware(
         mut self,
         func: impl 'static
+            + Send
+            + Sync
             + Fn(
                 Request,
                 RequestContext,
                 // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
                 Arc<NextFn>,
-            ) -> Pin<Box<dyn Future<Output = Response>>>,
+            ) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>,
     ) -> Self {
         self._exp_middleware.push(Arc::new(func));
         self
@@ -327,14 +336,14 @@ impl WebServiceBuilder {
         self.root_route.print_all_routes();
 
         let service = WebService {
-            inner: std::sync::Arc::new(WebServiceInner {
-                config: self.config,
+            inner: WebServiceInner {
+                config: Arc::new(self.config),
                 resources: self.resources.build().unwrap(),
                 // routes: Arc::new(self.root_route), // No longer stored in Webservice - it's now moved to Middleware when running.
-                admin_rx,
                 server_data: Arc::new(server_data),
                 consolidated_handler: build_middleware(self.root_route, self._exp_middleware),
-            }),
+            },
+            admin_rx,
             task_executor: Some(self.task_executor),
         };
 
@@ -347,15 +356,17 @@ impl WebServiceBuilder {
 
 impl WebServiceBuilder {
     pub fn with_authentication(self) -> Self {
-        self.with_middleware(extract_session)
-            .with_resource::<AppUser>()
-            .with_resource::<Session>()
-            .post_public("/login", gateway::login)
-            .post_public("/register", gateway::register)
+        // self.with_middleware(extract_session)
+        //     .with_resource::<AppUser>()
+        //     .with_resource::<Session>()
+        //     .post_public("/login", gateway::login)
+        //     .post_public("/register", gateway::register)
+        self
     }
 
     pub fn with_cors(self) -> Self {
-        self.with_middleware(cors::handle_cors)
+        self
+        // self.with_middleware(cors::handle_cors)
     }
 }
 
@@ -378,7 +389,7 @@ impl WebService {
         let WebServiceConfig {
             application_name,
             ..
-        } = &self.config;
+        } = &*self.config;
         // TODO: Bring this into a template file (.txt or .md)
         log::info!(
             r#"
@@ -442,7 +453,16 @@ impl WebService {
             println!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
 
-            time_exec!("ENTIRE REQUEST", self.handle_request(stream, context.clone()).await?);
+            // Testing for async requests in tokio tasks.
+            // async fn test(data: DataSystem) {
+            //     let users = data.get::<AppUser>().unwrap();
+            //     let all = users.all().await.unwrap();
+            // }
+            // tokio::spawn(test(context.data_providers.clone()));
+
+            let inner = self.inner.clone();
+            tokio::spawn(inner.handle_request(stream, context.clone()));
+            // time_exec!("ENTIRE REQUEST", self.handle_request(stream, context.clone()).await?);
 
             println!("Waiting for connection....");
         }
@@ -504,9 +524,13 @@ impl WebService {
         tasks_thread.map(|thread| thread.join());
         result
     }
+}
 
+/// This mod adds QueuedTask support to the WebApplication, running in a separate thread.
+/// #[cfg(feature = "tasks")]
+impl WebServiceInner {
     pub async fn handle_request(
-        &self,
+        self,
         mut stream: std::net::TcpStream,
         server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
@@ -522,14 +546,11 @@ impl WebService {
         let context =
             time_exec!("Build Context", RequestContext::from_server_context(server_context));
 
-        let response = (self.consolidated_handler)(request, context).await;
+        let handler = self.consolidated_handler.clone();
+        let response = handler(request, context).await;
 
         stream.write_all(&response.as_bytes())?;
 
         Ok(())
     }
 }
-
-/// This mod adds QueuedTask support to the WebApplication, running in a separate thread.
-/// #[cfg(feature = "tasks")]
-impl WebService {}
