@@ -42,8 +42,8 @@ mod tailwag {
     BuildRoutes,
     tailwag::forms::macros::GetForm,
 )]
-// #[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
-// #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+#[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
+#[policy(RoutePolicy::RequireRole("Admin".to_string()))]
 #[create_type(AppUserCreateRequest)]
 pub struct AppUser {
     id: uuid::Uuid,
@@ -123,7 +123,7 @@ impl tailwag::orm::data_manager::rest_api::Id for AppUser {
     tailwag_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
-// #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+#[policy(RoutePolicy::RequireRole("Admin".to_string()))]
 pub struct Session {
     id: uuid::Uuid,
     pub account_id: uuid::Uuid,
