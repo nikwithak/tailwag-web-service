@@ -17,8 +17,7 @@ enum TaskStatus {
     _Error,
 }
 
-type TaskFn =
-    dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> + Send + Sync + 'static;
+type TaskFn = dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static;
 
 #[allow(unused)]
 struct Task {
@@ -52,10 +51,7 @@ impl ThreadPool {
 
     pub fn spawn(
         &self,
-        task_fn: impl FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>
-            + Send
-            + Sync
-            + 'static,
+        task_fn: impl FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
     ) -> Uuid {
         let id = Uuid::new_v4();
         self.task_sender

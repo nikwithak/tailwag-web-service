@@ -451,7 +451,7 @@ type RouteHandlerInner = Box<
         + Fn(
             Request,
             RequestContext,
-        ) -> Pin<Box<dyn Send + Sync + 'static + std::future::Future<Output = Response>>>,
+        ) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = Response>>>,
 >;
 pub struct RouteHandler {
     pub(crate) handler: RouteHandlerInner,
@@ -737,10 +737,10 @@ impl RequestContext {
 impl RequestContext {
     /// Gets the requested data type from the request context, if it exists.
     /// Useful for maintaining data state between beforeware & afterware (e.g. wrapping with middleware)
-    pub fn get_request_data<T: 'static + Sync + Send>(&self) -> Option<&T> {
+    pub fn get_request_data<T: 'static + Send>(&self) -> Option<&T> {
         self.request_data.get::<T>()
     }
-    pub fn get_request_data_mut<T: 'static + Sync + Send>(&mut self) -> Option<&mut T> {
+    pub fn get_request_data_mut<T: 'static + Send>(&mut self) -> Option<&mut T> {
         self.request_data.get_mut::<T>()
     }
     pub fn insert_request_data<T: 'static + Sync + Send>(
@@ -775,9 +775,9 @@ impl From<&RequestContext> for DataSystem {
     }
 }
 
-pub struct ServerData<T: Clone + Send + Sync + 'static>(pub T);
+pub struct ServerData<T: Clone + Send + 'static>(pub T);
 
-impl<T: Clone + Send + Sync + 'static> Deref for ServerData<T> {
+impl<T: Clone + Send + 'static> Deref for ServerData<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -785,23 +785,21 @@ impl<T: Clone + Send + Sync + 'static> Deref for ServerData<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> From<&RequestContext> for ServerData<T> {
+impl<T: Clone + Send + 'static> From<&RequestContext> for ServerData<T> {
     fn from(ctx: &RequestContext) -> Self {
         // TODO: Use TryFrom instead
         Self(ctx.server_context.server_data.get::<T>().unwrap().clone())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
+impl<T: Clone + Send + 'static> From<ServerContext> for ServerData<T> {
     fn from(ctx: ServerContext) -> Self {
         // TODO: Use TryFrom instead
         Self(ctx.server_data.get::<T>().unwrap().clone())
     }
 }
 
-impl<T: Insertable + Clone + Send + Sync + 'static> From<ServerContext>
-    for PostgresDataProvider<T>
-{
+impl<T: Insertable + Clone + Send + 'static> From<ServerContext> for PostgresDataProvider<T> {
     fn from(ctx: ServerContext) -> Self {
         ctx.data_providers
             .get::<T>()
@@ -810,9 +808,7 @@ impl<T: Insertable + Clone + Send + Sync + 'static> From<ServerContext>
     }
 }
 
-impl<T: Insertable + Clone + Send + Sync + 'static> From<&RequestContext>
-    for PostgresDataProvider<T>
-{
+impl<T: Insertable + Clone + Send + 'static> From<&RequestContext> for PostgresDataProvider<T> {
     fn from(ctx: &RequestContext) -> Self {
         ctx.server_context
             .data_providers

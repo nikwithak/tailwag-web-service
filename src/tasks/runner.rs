@@ -71,7 +71,7 @@ pub enum TaskError {
 }
 
 type Handler<Req, Ctx, Res> =
-    Box<dyn Send + 'static + Sync + Fn(Req, Ctx) -> Pin<Box<dyn Future<Output = Res>>>>;
+    Box<dyn Send + 'static + Fn(Req, Ctx) -> Pin<Box<dyn Future<Output = Res>>>>;
 type TaskHandler = Handler<TaskRequest, ServerContext, TaskResult>;
 // Going to use the same pattern as [IntoRouteHandler<F, Tag, IO>].
 // Start thinking of an abstraction approach. Maybe add a <Req, Res> to the TaskHandler type?
@@ -101,7 +101,7 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O, Fut, >
             IntoTaskHandler<F, ($($context_id,)* I, O, Fut), I> for F
         where
-            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static ,
             I: FromTaskRequest + Sized + 'static,
             $($context_id: From<ServerContext> + Sized + 'static,)*
             O: IntoTaskResult + Sized + Send + 'static,
@@ -121,7 +121,7 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O>
             IntoTaskHandler<F, ($($context_id,)* I, O), I> for F
         where
-            F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
+            F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static ,
             I: FromTaskRequest + Sized + 'static,
             $($context_id: From<ServerContext> + Sized + 'static,)*
             O: IntoTaskResult + Sized + Send + 'static,
@@ -140,7 +140,7 @@ macro_rules! generate_trait_impl {
 
 impl<F, Req, O, Fut> IntoTaskHandler<F, ((), Req, O, Fut), Req> for F
 where
-    F: Fn(Req) -> Fut + Send + Copy + 'static + Sync,
+    F: Fn(Req) -> Fut + Send + Copy + 'static,
     Req: FromTaskRequest + Sized + 'static,
     O: IntoTaskResult + Sized + Send + 'static,
     Fut: std::future::Future<Output = O> + 'static + Send,
@@ -153,7 +153,7 @@ where
 }
 impl<F, Req, O> IntoTaskHandler<F, ((), Req, O), Req> for F
 where
-    F: Fn(Req) -> O + Send + Copy + 'static + Sync,
+    F: Fn(Req) -> O + Send + Copy + 'static,
     Req: FromTaskRequest + Sized + 'static,
     O: IntoTaskResult + Sized + Send + 'static,
 {
@@ -209,20 +209,20 @@ impl TaskExecutor {
         &mut self,
         f: F,
     ) where
-        F: IntoTaskHandler<F, T, Req> + Sized + Sync + Send + 'static,
-        // F: IntoTaskHandler<F, T, O> + Sized + Sync + Send + 'static,
+        F: IntoTaskHandler<F, T, Req> + Sized + Send + 'static,
+        // F: IntoTaskHandler<F, T, O> + Sized + Send + 'static,
         Req: 'static,
     {
         log::debug!("Adding Request Type: {:?}", TypeId::of::<Req>());
         self.handlers.insert(TypeId::of::<Req>(), f.into());
     }
 
-    pub async fn run_in_new_thread(
-        self,
-        context: ServerContext,
-    ) -> JoinHandle<()> {
-        std::thread::spawn(move || self.run(context))
-    }
+    // pub async fn run_in_new_thread(
+    //     self,
+    //     context: ServerContext,
+    // ) -> JoinHandle<()> {
+    //     // std::thread::spawn(move || self.run(context))
+    // }
 
     #[tokio::main(flavor = "current_thread")]
     pub async fn run(

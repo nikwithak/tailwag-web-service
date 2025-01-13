@@ -54,13 +54,12 @@ pub enum ApplicationError {
 }
 
 pub type Middleware = dyn Send
-    + Sync
     + Fn(
         Request,
         RequestContext,
         // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
         Arc<NextFn>,
-    ) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>;
+    ) -> Pin<Box<dyn Send + Future<Output = Response>>>;
 // ttype NextFn = dyn 'static + n(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 pub type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
 
@@ -84,9 +83,8 @@ pub enum AdminActions {
     KillServer,
 }
 
-type HandlerFn = dyn Send
-    + Sync
-    + Fn(Request, RequestContext) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>;
+type HandlerFn =
+    dyn Send + Sync + Fn(Request, RequestContext) -> Pin<Box<dyn Send + Future<Output = Response>>>;
 #[allow(private_bounds)]
 #[derive(Clone)]
 pub struct WebServiceInner {
@@ -230,7 +228,6 @@ impl WebServiceBuilder {
             + Id
             + Filterable
             + Clone
-            + Sync
             + std::fmt::Debug
             + Unpin
             + Updateable
@@ -265,7 +262,7 @@ impl WebServiceBuilder {
         task_handler: F,
     ) -> Self
     where
-        F: IntoTaskHandler<F, T, Req> + Sized + Sync + Send + 'static,
+        F: IntoTaskHandler<F, T, Req> + Sized + Send + 'static,
         Req: 'static,
     {
         self.task_executor.add_handler(task_handler);
@@ -276,13 +273,12 @@ impl WebServiceBuilder {
         mut self,
         func: impl 'static
             + Send
-            + Sync
             + Fn(
                 Request,
                 RequestContext,
                 // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
                 Arc<NextFn>,
-            ) -> Pin<Box<dyn Send + Sync + Future<Output = Response>>>,
+            ) -> Pin<Box<dyn Send + Future<Output = Response>>>,
     ) -> Self {
         self._exp_middleware.push(Arc::new(func));
         self
@@ -315,19 +311,19 @@ impl WebServiceBuilder {
                     Box::pin(async move { routes.clone().handle(req, ctx).await })
                 });
 
-            for mw_step in middleware.into_iter().rev() {
-                // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
-                consolidated_fn = Arc::new(move |req: Request, ctx: RequestContext| {
-                    //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
-                    //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
-                    let next = consolidated_fn.clone();
-                    mw_step(
-                        req,
-                        ctx,
-                        Arc::new(move |req: Request, ctx: RequestContext| next(req, ctx)),
-                    )
-                });
-            }
+            // for mw_step in middleware.into_iter().rev() {
+            //     // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
+            //     consolidated_fn = Arc::new(move |req: Request, ctx: RequestContext| {
+            //         //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
+            //         //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
+            //         let next = consolidated_fn.clone();
+            //         mw_step(
+            //             req,
+            //             ctx,
+            //             Arc::new(move |req: Request, ctx: RequestContext| next(req, ctx)),
+            //         )
+            //     });
+            // }
             consolidated_fn
         } //
 
