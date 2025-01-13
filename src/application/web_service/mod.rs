@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
-use crate::auth::gateway::AppUserCreateRequest;
+use crate::auth::gateway::{self, extract_session, AppUserCreateRequest, Session};
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
 use env_logger::Env;
 use log;
@@ -33,6 +33,7 @@ use crate::application::http::route::{RequestContext, ServerContext};
 use crate::{auth::gateway::AppUser, traits::rest_api::BuildRoutes};
 
 use super::http::route::{Request, Response};
+use super::middleware::cors;
 use super::static_files::load_static;
 use super::{http::route::Route, stats::RunResult};
 
@@ -51,7 +52,8 @@ pub type Middleware = dyn Send
         Arc<NextFn>,
     ) -> Pin<Box<dyn Send + Future<Output = Response>>>;
 // ttype NextFn = dyn 'static + n(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
-pub type NextFn = dyn Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>;
+pub type NextFn =
+    dyn Send + Sync + Fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response> + Send>>;
 
 // TODO: Separate definition from config
 #[derive(Debug)]
@@ -151,8 +153,8 @@ impl Default for WebServiceBuilder {
             task_executor: Default::default(),
             _exp_middleware: Vec::new(),
         }
-        // .with_authentication()
-        // .with_cors()
+        .with_authentication()
+        .with_cors()
     }
 }
 
@@ -341,17 +343,15 @@ impl WebServiceBuilder {
 
 impl WebServiceBuilder {
     pub fn with_authentication(self) -> Self {
-        // self.with_middleware(extract_session)
-        //     .with_resource::<AppUser>()
-        //     .with_resource::<Session>()
-        //     .post_public("/login", gateway::login)
-        //     .post_public("/register", gateway::register)
-        self
+        self.with_middleware(extract_session)
+            .with_resource::<AppUser>()
+            .with_resource::<Session>()
+            .post_public("/login", gateway::login)
+            .post_public("/register", gateway::register)
     }
 
     pub fn with_cors(self) -> Self {
-        self
-        // self.with_middleware(cors::handle_cors)
+        self.with_middleware(cors::handle_cors)
     }
 }
 

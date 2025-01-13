@@ -39,7 +39,7 @@ mod tailwag {
     tailwag_macros::Updateable,
     tailwag_macros::Deleteable,
     Filterable,
-    // BuildRoutes,
+    BuildRoutes,
     tailwag::forms::macros::GetForm,
 )]
 // #[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
@@ -115,7 +115,7 @@ impl tailwag::orm::data_manager::rest_api::Id for AppUser {
     Deserialize, // Needed for API de/serialization
     Serialize,   // Needed for API de/serialization
     // sqlx::FromRow, // Needed for DB connectivity
-    // BuildRoutes,
+    BuildRoutes,
     tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
     tailwag_macros::Insertable,
     tailwag_macros::Updateable,
@@ -157,7 +157,7 @@ pub fn extract_session(
     request: Request,
     mut context: RequestContext,
     next: Arc<NextFn>,
-) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+) -> Pin<Box<dyn std::future::Future<Output = Response> + Send>> {
     Box::pin(async move {
         let Some(sessions) = context.get::<Session>() else {
             return Response::internal_server_error();

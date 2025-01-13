@@ -73,7 +73,7 @@ pub fn handle_cors(
     req: Request,
     ctx: RequestContext,
     next: Arc<NextFn>,
-) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+) -> Pin<Box<dyn Send + std::future::Future<Output = Response>>> {
     Box::pin(async move {
         // TODO: Not the proper way to check, but "good enough" to unblock.
         // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
