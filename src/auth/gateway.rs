@@ -157,7 +157,7 @@ pub fn extract_session(
     request: Request,
     mut context: RequestContext,
     next: Arc<NextFn>,
-) -> Pin<Box<dyn std::future::Future<Output = Response>>> {
+) -> Pin<Box<dyn std::future::Future<Output = Response> + Send>> {
     Box::pin(async move {
         let Some(sessions) = context.get::<Session>() else {
             return Response::internal_server_error();

@@ -84,7 +84,7 @@ mod tailwag {
 #[create_type(ImageMetadata)]
 #[post(save_image)]
 #[patch(update_image_md)]
-// #[views(("/image/{id}", load_image))]
+#[views(("/image/{id}", load_image))]
 pub struct ImageMetadata {
     pub id: Uuid,
     pub namespace: String,

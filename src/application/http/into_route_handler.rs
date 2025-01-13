@@ -27,9 +27,9 @@ pub trait IntoRouteHandler<F, Tag, IO> {
 }
 impl<F, I, O> IntoRouteHandler<F, RouteArgsStaticRequest, (I, O)> for F
 where
-    F: Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
-        + Send
+    F: Send
         + Sync
+        + Fn(I) -> Pin<Box<dyn Send + 'static + std::future::Future<Output = O>>>
         + Copy
         + 'static,
     I: FromRequest + Sized + Send,
@@ -52,8 +52,8 @@ where
 pub struct RouteArgsNone;
 impl<F, O> IntoRouteHandler<F, RouteArgsNone, O> for F
 where
-    F: Fn() -> O + Send + Copy + 'static + Sync,
-    O: IntoResponse + Sized + Send + Sync,
+    F: Send + Sync + Fn() -> O + Send + Copy + 'static,
+    O: IntoResponse + Sized + Send,
 {
     fn into(self) -> RouteHandler {
         RouteHandler {
@@ -97,7 +97,7 @@ where
 pub struct RouteArgsNoContextAsync;
 impl<F, I, O, Fut> IntoRouteHandler<F, RouteArgsNoContextAsync, (F, I, (O, Fut))> for F
 where
-    F: Fn(I) -> Fut + Send + Copy + 'static + Sync,
+    F: Send + Sync + Fn(I) -> Fut + Send + Copy + 'static,
     I: FromRequest + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
     Fut: Future<Output = O> + 'static + Send,
@@ -116,8 +116,8 @@ where
     }
 }
 
-pub struct RouteArgsNoContextSync;
-impl<F, I, O> IntoRouteHandler<F, RouteArgsNoContextSync, (F, I, O)> for F
+pub struct RouteArgsNoContext;
+impl<F, I, O> IntoRouteHandler<F, RouteArgsNoContext, (F, I, O)> for F
 where
     F: Send + Sync + Copy + 'static + Fn(I) -> O,
     I: FromRequest + Sized + 'static,
@@ -143,11 +143,11 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)* RequestContext), ($($context_id),*, I, (O, Fut))> for F
         where
-            F: Fn(I, $($context_id,)* RequestContext) -> Fut + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn(I, $($context_id,)* RequestContext) -> Fut + Send + Copy + 'static + ,
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = O> + 'static + Send,
+            Fut: Future<Output = O> + 'static +  Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -171,7 +171,7 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O>
             IntoRouteHandler<F, ($($context_id,)* RequestContext), ($($context_id,)* I, O)> for F
         where
-            F: Fn(I, $($context_id),*, RequestContext) -> O + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn(I, $($context_id),*, RequestContext) -> O + Send + Copy + 'static + ,
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
@@ -196,11 +196,11 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, Fut))> for F
         where
-            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + ,
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = O> + 'static + Send,
+            Fut: Future<Output = O> + 'static +   Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -224,7 +224,7 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O>
             IntoRouteHandler<F, ($($context_id,)*), ($($context_id,)* I, O)> for F
         where
-            F: Fn(I, $($context_id),*) -> O + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn(I, $($context_id),*) -> O + Send + Copy + 'static + ,
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
@@ -251,10 +251,10 @@ macro_rules! generate_trait_impl {
         impl<F, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* (O, (), Fut))> for F
         where
-            F: Fn($($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn($($context_id),*) -> Fut + Send + Copy + 'static + ,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+            Fut: Future<Output = Result<O, crate::Error>> +   'static + Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -280,11 +280,11 @@ macro_rules! generate_trait_impl {
         impl<F, I, $($context_id,)* O, Fut>
             IntoRouteHandler<F, (Fut, $($context_id,)*), ($($context_id,)* I, (O, (), Fut))> for F
         where
-            F: Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + Sync,
+            F: Send + Sync + Fn(I, $($context_id),*) -> Fut + Send + Copy + 'static + ,
             I: FromRequest + Sized + 'static,
             $($context_id: for<'a> From<&'a RequestContext> + Sized + 'static,)*
             O: IntoResponse + Sized + Send + 'static,
-            Fut: Future<Output = Result<O, crate::Error>> + 'static + Send,
+            Fut: Future<Output = Result<O, crate::Error>> + 'static +  Send,
         {
             fn into(self) -> RouteHandler {
                 RouteHandler {
@@ -319,7 +319,7 @@ generate_trait_impl!(R1, C1, C2, C3, C4, C5);
 pub struct Nothing3Async;
 impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Async, (C, O, Fut)> for F
 where
-    F: Fn(C) -> Fut + Send + Copy + 'static + Sync,
+    F: Send + Sync + Fn(C) -> Fut + Send + Copy + 'static,
     C: for<'a> From<&'a RequestContext> + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
     Fut: Future<Output = O> + 'static + Send,
@@ -332,10 +332,10 @@ where
         }
     }
 }
-pub struct Nothing3Sync;
-impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3Sync, (C, O, Fut)> for F
+pub struct Nothing3;
+impl<F, C, O, Fut> IntoRouteHandler<F, Nothing3, (C, O, Fut)> for F
 where
-    F: Fn(C) -> O + Send + Copy + 'static + Sync,
+    F: Send + Sync + Fn(C) -> O + Send + Copy + 'static,
     C: for<'a> From<&'a RequestContext> + Sized + 'static,
     O: IntoResponse + Sized + Send + 'static,
 {
