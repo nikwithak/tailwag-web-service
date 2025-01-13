@@ -329,7 +329,7 @@ impl Route {
                 // TODO:
                 todo!("... = \"the rest of the input\"");
             } else {
-                println!("part: {} doesn't match regex", &part);
+                log::error!("part: {} doesn't match regex", &part);
                 panic!("Invalid route");
             }
         }

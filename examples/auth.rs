@@ -16,7 +16,7 @@ pub async fn main() -> Result<(), Error> {
         .await?;
 
     async fn echo(value: String) -> String {
-        println!("Your request: {}", &value);
+        log::info!("Your request: {}", &value);
         value
     }
     Ok(())

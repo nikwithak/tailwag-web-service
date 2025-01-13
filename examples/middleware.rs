@@ -10,10 +10,9 @@ pub async fn main() {
     WebService::builder("Middleware Example Service")
         .with_middleware(|req: Request, ctx: RequestContext, next: Arc<NextFn>| {
             Box::pin(async move {
-                println!("MALCOLM IN THE MIDDLEWARE!");
-                println!("'ere's your request: {:?}", &req.body);
+                log::info!("Receivedc request: {:?}", &req.body);
                 let res = next(req, ctx).await;
-                println!("Finished request");
+                log::info!("Finished request");
                 res
             })
         })
@@ -24,7 +23,7 @@ pub async fn main() {
         .unwrap();
 
     async fn echo(value: String) -> String {
-        println!("Your request: {}", &value);
+        log::info!("Your request: {}", &value);
         value
     }
 }

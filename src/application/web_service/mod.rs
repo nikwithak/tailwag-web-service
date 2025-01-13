@@ -428,14 +428,14 @@ impl WebService {
         let bind_addr = format!("{}:{}", &self.config.socket_addr, self.config.port);
         log::info!("Starting service on {}", &bind_addr);
         let listener = TcpListener::bind(&bind_addr).unwrap();
-        println!("Waiting for connection....");
+        log::info!("Waiting for connection....");
         while let Ok((stream, _addr)) = listener.accept() {
             if let Ok(AdminActions::KillServer) = self.admin_rx.try_recv() {
                 // If we've gotten a kill signal, then stop the server.
                 break;
             }
 
-            println!("Received connection from {}!", _addr.ip());
+            log::info!("Received connection from {}!", _addr.ip());
             // TODO: Rate-limiting / failtoban stuff
 
             // Testing for async requests in tokio tasks.
@@ -449,7 +449,7 @@ impl WebService {
             tokio::spawn(inner.handle_request(stream, context.clone()));
             // time_exec!("ENTIRE REQUEST", self.handle_request(stream, context.clone()).await?);
 
-            println!("Waiting for connection....");
+            log::info!("Waiting for connection....");
         }
         Ok(RunResult::default())
     }
