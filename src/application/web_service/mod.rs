@@ -5,15 +5,11 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
-use crate::auth::gateway::{self, extract_session, AppUserCreateRequest};
+use crate::auth::gateway::AppUserCreateRequest;
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
-use argon2::password_hash::SaltString;
-use argon2::Argon2;
-use argon2::PasswordHasher;
 use env_logger::Env;
 use log;
 use rand::distributions::Alphanumeric;
-use rand::rngs::OsRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -22,8 +18,6 @@ use tailwag_forms::{Form, GetForm};
 use tailwag_macros::{time_exec, Deref};
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::data_manager::traits::DataProvider;
-use tailwag_orm::data_manager::PostgresDataProvider;
-use tailwag_orm::object_management::insert::InsertStatement;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
@@ -36,14 +30,9 @@ use tailwag_orm::{
 use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 
 use crate::application::http::route::{RequestContext, ServerContext};
-// use crate::application::threads::ThreadPool;
-use crate::{
-    auth::gateway::{AppUser, Session},
-    traits::rest_api::BuildRoutes,
-};
+use crate::{auth::gateway::AppUser, traits::rest_api::BuildRoutes};
 
 use super::http::route::{Request, Response};
-use super::middleware::cors::{self};
 use super::static_files::load_static;
 use super::{http::route::Route, stats::RunResult};
 
@@ -54,6 +43,7 @@ pub enum ApplicationError {
 }
 
 pub type Middleware = dyn Send
+    + Sync
     + Fn(
         Request,
         RequestContext,
@@ -273,6 +263,7 @@ impl WebServiceBuilder {
         mut self,
         func: impl 'static
             + Send
+            + Sync
             + Fn(
                 Request,
                 RequestContext,
@@ -311,21 +302,19 @@ impl WebServiceBuilder {
                     Box::pin(async move { routes.clone().handle(req, ctx).await })
                 });
 
-            // for mw_step in middleware.into_iter().rev() {
-            //     // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
-            //     consolidated_fn = Arc::new(move |req: Request, ctx: RequestContext| {
-            //         //     mw_step(req, ctx, |req: Request, ctx: RequestContext| {
-            //         //         Box::pin(async move { consolidated_fn(req, ctx, orig_req).await }
-            //         let next = consolidated_fn.clone();
-            //         mw_step(
-            //             req,
-            //             ctx,
-            //             Arc::new(move |req: Request, ctx: RequestContext| next(req, ctx)),
-            //         )
-            //     });
-            // }
+            for mw_step in middleware.into_iter().rev() {
+                // Wrap each middleware function with the one before it. This allows for a "bounce" in the middleware - requests will go top-down, so the first thing it hits is the first middleware added.
+                consolidated_fn = Arc::new(move |req: Request, ctx: RequestContext| {
+                    let next = consolidated_fn.clone();
+                    mw_step(
+                        req,
+                        ctx,
+                        Arc::new(move |req: Request, ctx: RequestContext| next(req, ctx)),
+                    )
+                });
+            }
             consolidated_fn
-        } //
+        }
 
         // Print all the configured routes before building.
         // TODO: Move this to on start.
