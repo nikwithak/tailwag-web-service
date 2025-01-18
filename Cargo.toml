@@ -57,10 +57,8 @@ tracing-subscriber = "0.3.17"
 
 # Database (Postgres) - Not sure it's worth supporting non-postgres (relational) DBs? Maybe sqlite
 sqlx = { version = "0.8.2", features = [ "postgres", "uuid", "chrono", "json", "runtime-tokio-rustls", ] }
-tower-http = { version = "0.4.4", features = ["cors"] }
 jsonwebtoken = "9.2.0"
 argon2 = "0.5.3"
-tower = "0.4.13"
 futures = "0.3.30"
 pulldown-cmark = "0.10.2"
 urlencoding = "2.1.3"
