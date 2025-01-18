@@ -1,13 +1,12 @@
 use std::{fmt::Display, str::FromStr};
 
-use tailwag_macros::derive_magic;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
 use tailwag_web_service::{
     application::{
         http::{
             headers::Headers,
-            multipart::{FromMultipartPart, MultipartPart},
-            route::{FromRequest, IntoResponse, PathString, PathVar, Response},
+            multipart::MultipartPart,
+            route::{FromRequest, IntoResponse, PathString, Response},
         },
         WebService,
     },
@@ -200,6 +199,7 @@ impl FromStr for ImageMimeType {
     }
 }
 
+#[allow(unused)]
 trait GetFileDetails {
     fn get_image_mime_type(&self) -> Option<ImageMimeType>;
     fn get_content_type(&self) -> Option<&str>;

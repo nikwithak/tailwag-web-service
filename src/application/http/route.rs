@@ -699,19 +699,9 @@ impl Response {
 #[derive(Clone, Deref)]
 pub struct ServerContext {
     #[deref]
-    pub data_providers: DataSystem,
-    pub server_data: Arc<TypeInstanceMap>,
+    pub(crate) data_providers: DataSystem,
+    pub(crate) server_data: Arc<TypeInstanceMap>,
 }
-
-impl ServerContext {
-    pub fn from(data_providers: DataSystem) -> Self {
-        ServerContext {
-            data_providers,
-            server_data: Default::default(),
-        }
-    }
-}
-
 // TODO: Wire this up (or find some way )
 // type RequestData = Arc<Mutex<TypeInstanceMap>>;
 

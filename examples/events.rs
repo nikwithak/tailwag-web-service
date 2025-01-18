@@ -53,7 +53,6 @@ async fn main() {
         .unwrap();
 }
 
-// TODO: Remove these, just playing around with this.
 fn css() -> Response {
     load_static("globals.css")
 }

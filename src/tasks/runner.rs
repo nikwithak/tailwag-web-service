@@ -3,7 +3,6 @@ use std::{
     collections::HashMap,
     pin::Pin,
     sync::mpsc::{channel, Receiver, Sender},
-    thread::JoinHandle,
 };
 
 use chrono::NaiveDateTime;
