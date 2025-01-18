@@ -1,6 +1,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
+    cell::OnceCell,
     collections::HashMap,
     fmt::Display,
     io::{BufRead, Read},
@@ -18,10 +19,13 @@ use tailwag_utils::{
     data_strutures::hashmap_utils::GetOrDefault, types::generic_type_map::TypeInstanceMap,
 };
 
-use crate::{application::http::into_route_handler::IntoRouteHandler, auth::gateway::AppUser};
 use crate::{
     application::http::{headers::Headers, multipart::parse_multipart_request},
     auth::gateway::Session,
+};
+use crate::{
+    application::{http::into_route_handler::IntoRouteHandler, ConfigConstants},
+    auth::gateway::AppUser,
 };
 
 /// TODO: This file has gotten huge, and contains WAY more than just route logic. Factor a bunch of this out to smaller files in more logical groupings.
@@ -415,6 +419,7 @@ pub enum HttpStatus {
     NotImplemented = 501,
     IAmATeapot = 418,
     InternalServerError = 503,
+    EntityTooLarge = 413,
 }
 
 impl Display for HttpStatus {
@@ -437,7 +442,7 @@ impl Display for HttpStatus {
                 HttpStatus::IAmATeapot => "I Am A Teapot",
                 HttpStatus::InternalServerError => "Internal Server Error",
                 HttpStatus::Conflict => "Conflict",
-                // _ => "Unknown",
+                HttpStatus::EntityTooLarge => "Entity Too Large",
             }
         );
         f.write_str(&var_name)
@@ -545,20 +550,24 @@ pub enum HttpBody {
 }
 
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
+const MAX_CONTENT_LENGTH: u64 = 50 * 1024 * 1024; // Content Length cannot be longer than 50MB
+                                                  // TODO: Migrate this to a config
 
 impl TryFrom<&std::net::TcpStream> for Request {
     fn try_from(stream: &std::net::TcpStream) -> Result<Self, Self::Error> {
         let mut stream = std::io::BufReader::new(stream);
+        let stream = &mut stream;
 
         let mut line = String::new();
-        stream.read_line(&mut line)?;
+        stream.take(ConfigConstants::request_line_max_length()).read_line(&mut line)?;
+
         let mut routing_line = line.split_whitespace();
         let (Some(method), Some(path), Some(http_version)) =
             (routing_line.next(), routing_line.next(), routing_line.next())
         else {
             Err(Self::Error::BadRequest(format!("Invalid routing header found: {}", &line)))?
         };
-        let headers = Headers::parse_headers(&mut stream)?;
+        let headers = Headers::parse_headers(stream)?;
         let content_length: usize =
             headers.get("content-length").and_then(|c| c.parse().ok()).unwrap_or(0);
         let content_type_header =
@@ -568,6 +577,9 @@ impl TryFrom<&std::net::TcpStream> for Request {
             content_type_header.split_once(';').unwrap_or((content_type_header, ""));
         type E = HttpBody;
 
+        if content_length > ConfigConstants::max_content_length() as usize {
+            crate::Error::entity_too_large()?;
+        }
         let body = if content_length > 0 {
             let mut bytes = vec![0; content_length];
             log::info!("Reading {} bytes", content_length);
@@ -636,6 +648,7 @@ impl Response {
     default_response!(not_found, NotFound);
     default_response!(not_implemented, NotImplemented);
     default_response!(internal_server_error, InternalServerError);
+    default_response!(entity_too_large, EntityTooLarge);
     default_response!(unauthorized, Unauthorized);
     default_response!(conflict, Conflict);
     default_response!(ok, Ok);

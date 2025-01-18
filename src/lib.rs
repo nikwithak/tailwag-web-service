@@ -15,6 +15,7 @@ pub enum Error {
     TaskSchedculingError(TaskError),
     Conflict,
     NotFound,
+    EntityTooLarge,
 }
 use tasks::runner::TaskError;
 pub use Error as HttpError;
@@ -33,6 +34,9 @@ impl Error {
     }
     pub fn conflict<T>() -> HttpResult<T> {
         Err(Error::Conflict)
+    }
+    pub fn entity_too_large<T>() -> HttpResult<T> {
+        Err(Error::EntityTooLarge)
     }
 }
 
@@ -73,6 +77,10 @@ impl IntoResponse for crate::Error {
             Error::TaskSchedculingError(task_error) => {
                 log::error!("[TASK SCHEDULING ERROR]: {:?}", task_error);
                 Response::internal_server_error()
+            },
+            Error::EntityTooLarge => {
+                log::warn!("[ENTITY TOO LARGE]: ");
+                Response::entity_too_large()
             },
         }
     }

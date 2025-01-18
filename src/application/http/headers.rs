@@ -7,7 +7,7 @@ use std::{
 
 use tailwag_macros::Deref;
 
-use crate::Error;
+use crate::{application::ConfigConstants, Error};
 
 type HeaderName = String;
 // type HeaderValue = String;
@@ -86,12 +86,24 @@ impl Headers {
                 .map(|(a, b)| (a.trim().to_lowercase(), b.trim().to_string()))
         }))
     }
+
     pub fn parse_headers<T: std::io::Read>(stream: &mut BufReader<T>) -> Result<Self, Error> {
         let mut headers = Headers::default();
         let mut line = String::new();
 
-        // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
-        while stream.read_line(&mut line)? > 2 {
+        let mut stream = std::io::Read::take(stream, ConfigConstants::headers_max_length());
+        while {
+            let bytes = stream.read_line(&mut line)?;
+            if bytes == 0 {
+                // 0 indicates nothing was read - headers must end with a newline, which means we exceeded headers_max_length
+                Error::entity_too_large()?
+            } else if bytes > 2 {
+                // 2 is the size of the line break indicating end of headers, and is too small to fit anything else in a well-formed request. Technically speaking I should be checking for CRLF specifically (or at least LF)
+                true
+            } else {
+                false
+            }
+        } {
             headers.insert_parsed(&line)?;
             line = String::new();
         }
