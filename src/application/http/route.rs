@@ -1,7 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     fmt::Display,
     io::{BufRead, Read},
@@ -416,10 +415,11 @@ pub enum HttpStatus {
     Forbidden = 403,
     NotFound = 404,
     Conflict = 409,
-    NotImplemented = 501,
-    IAmATeapot = 418,
-    InternalServerError = 503,
     EntityTooLarge = 413,
+    UnsupportedMediaType = 415,
+    IAmATeapot = 418,
+    NotImplemented = 501,
+    InternalServerError = 503,
 }
 
 impl Display for HttpStatus {
@@ -443,6 +443,7 @@ impl Display for HttpStatus {
                 HttpStatus::InternalServerError => "Internal Server Error",
                 HttpStatus::Conflict => "Conflict",
                 HttpStatus::EntityTooLarge => "Entity Too Large",
+                HttpStatus::UnsupportedMediaType => "Unsupported Media Type",
             }
         );
         f.write_str(&var_name)
@@ -550,8 +551,6 @@ pub enum HttpBody {
 }
 
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
-const MAX_CONTENT_LENGTH: u64 = 50 * 1024 * 1024; // Content Length cannot be longer than 50MB
-                                                  // TODO: Migrate this to a config
 
 impl TryFrom<&std::net::TcpStream> for Request {
     fn try_from(stream: &std::net::TcpStream) -> Result<Self, Self::Error> {
@@ -589,7 +588,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
                     dbg!(E::Json(String::from_utf8(bytes)?))
                 },
                 "multipart/form-data" => parse_multipart_request(content_type_params, bytes)?,
-                _ => todo!("Unsupported content-type"),
+                _ => crate::Error::unsupported_media_type()?,
             }
         } else {
             HttpBody::None
@@ -650,6 +649,7 @@ impl Response {
     default_response!(internal_server_error, InternalServerError);
     default_response!(entity_too_large, EntityTooLarge);
     default_response!(unauthorized, Unauthorized);
+    default_response!(unsupported_media_type, UnsupportedMediaType);
     default_response!(conflict, Conflict);
     default_response!(ok, Ok);
     pub fn redirect_see_other(redirect_url: &str) -> Self {

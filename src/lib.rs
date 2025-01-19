@@ -16,6 +16,7 @@ pub enum Error {
     Conflict,
     NotFound,
     EntityTooLarge,
+    UnsupportedMediaType,
 }
 use tasks::runner::TaskError;
 pub use Error as HttpError;
@@ -37,6 +38,9 @@ impl Error {
     }
     pub fn entity_too_large<T>() -> HttpResult<T> {
         Err(Error::EntityTooLarge)
+    }
+    pub fn unsupported_media_type<T>() -> HttpResult<T> {
+        Err(Error::UnsupportedMediaType)
     }
 }
 
@@ -81,6 +85,10 @@ impl IntoResponse for crate::Error {
             Error::EntityTooLarge => {
                 log::warn!("[ENTITY TOO LARGE]: ");
                 Response::entity_too_large()
+            },
+            Error::UnsupportedMediaType => {
+                log::warn!("[UNSUPPORTED MEDIA TYPE]: ");
+                Response::unsupported_media_type()
             },
         }
     }

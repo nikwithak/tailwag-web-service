@@ -253,7 +253,10 @@ pub async fn login(
         // TODO: Need to update get() to ensure only one exists
         // .and_then(|mut vec| vec.pop())
         .pop()
-        .ok_or(crate::Error::NotFound)?;
+        .ok_or_else(|| {
+            // TODO: Protect against authn timing attacks, by verifying the password against a dummy hash, and writing a dummy session to the store.
+            crate::Error::NotFound
+        })?;
 
     argon2::Argon2::default().verify_password(
         creds.password.as_bytes(),

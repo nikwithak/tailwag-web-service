@@ -29,7 +29,7 @@ use tailwag_orm::{
 };
 use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 
-use crate::application::http::route::{RequestContext, ServerContext};
+use crate::application::http::route::{IntoResponse, RequestContext, ServerContext};
 use crate::{auth::gateway::AppUser, traits::rest_api::BuildRoutes};
 
 use super::http::route::{Request, Response};
@@ -526,13 +526,19 @@ impl WebServiceInner {
         let request = time_exec!(
             "Request Destructuring",
             crate::application::http::route::Request::try_from(&stream)
-        )?;
+        );
+        let response = match request {
+            Ok(request) => {
+                let context = time_exec!(
+                    "Build Context",
+                    RequestContext::from_server_context(server_context)
+                );
 
-        let context =
-            time_exec!("Build Context", RequestContext::from_server_context(server_context));
-
-        let handler = self.consolidated_handler.clone();
-        let response = handler(request, context).await;
+                let handler = self.consolidated_handler.clone();
+                handler(request, context).await
+            },
+            Err(err) => err.into_response(),
+        };
 
         stream.write_all(&response.as_bytes())?;
 
