@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -61,7 +62,7 @@ pub type NextFn =
 pub struct WebServiceConfig {
     application_name: String,
     socket_addr: String,
-    max_threads: usize,
+    _max_threads: usize,
     request_timeout_seconds: u64,
     port: i32,
     migrate_on_init: bool,
@@ -117,9 +118,18 @@ impl Default for WebServiceBuilder {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
         // Load in the current `.env` file, if it exists. If it fails, who cares, the rest of the ENV should be set.
         dotenv::dotenv().ok();
-        let database_conn_string = dbg!(std::env::var("DATABASE_CONN_STRING")
-            .unwrap_or("postgres://postgres:postgres@127.0.0.1:5432/postgres".into()));
-        let socket_addr = dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("127.0.0.1".into()));
+        let database_conn_string = match std::env::var("DATABASE_CONN_STRING") {
+            Ok(s) => s,
+            Err(_) => {
+                let db_name = std::env::var("POSTGRES_DB").unwrap_or("postgres".into());
+                let user = std::env::var("POSTGRES_USER").unwrap_or("postgres".into());
+                let password = std::env::var("POSTGRES_PASSWORD").unwrap_or("postgres".into());
+                let endpoint = std::env::var("POSTGRES_ENDPOINT").unwrap_or("127.0.0.1".into());
+                let port = std::env::var("POSTGRES_PORT").unwrap_or("5432".into());
+                format!("postgres://{user}:{password}@{endpoint}:{port}/{db_name}")
+            },
+        };
+        let socket_addr = dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("127.0.0.1".into())); // Only listens on localhost, unless configured otherwise.
         let port = dbg!(std::env::var("LISTEN_PORT").map_or(8081, |port| port
             .parse()
             .expect("Invalid port provided - must be an integer.")));
@@ -127,20 +137,33 @@ impl Default for WebServiceBuilder {
             .parse()
             .expect("Invalid thread count provided - must be an integer.")));
         let application_name =
-            dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("Tailwag Default Application".into()));
+            dbg!(std::env::var("APPLICATION_NAME").unwrap_or("Tailwag Default Application".into()));
         let migrate_on_init = dbg!(std::env::var("MIGRATE_ON_INIT").map_or(true, |val| val
             .parse()
             .expect("MIGRATE_ON_INIT must be parseable to a boolean")));
-        let request_timeout_seconds = dbg!(std::env::var("REQUEST_TIMEOUT_SECONDS")
-            .map_or(30, |val| val
-                .parse()
-                .expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")));
+        let request_timeout_seconds =
+            dbg!(std::env::var("REQUEST_TIMEOUT_MS") // Defaults to 30 seconds
+                .map_or(30000, |val| val
+                    .parse()
+                    .expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")));
+
+        let allowed_domains: HashSet<String> = std::env::var("ALLOWED_DOMAINS")
+            .unwrap_or("localhost,127.0.0.1".into())
+            .split(",")
+            .map(String::from)
+            .collect();
+
+        let cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLWOED_ORIGIN")
+            .unwrap_or("*".into())
+            .split(",")
+            .map(String::from)
+            .collect();
 
         Self {
             config: WebServiceConfig {
                 socket_addr,
                 port,
-                max_threads,
+                _max_threads: max_threads,
                 application_name,
                 migrate_on_init,
                 database_conn_string,
@@ -153,7 +176,7 @@ impl Default for WebServiceBuilder {
             task_executor: Default::default(),
             _exp_middleware: Vec::new(),
         }
-        .with_authentication()
+        // .with_authentication()
         .with_cors()
     }
 }
@@ -429,25 +452,23 @@ impl WebService {
         log::info!("Starting service on {}", &bind_addr);
         let listener = TcpListener::bind(&bind_addr).unwrap();
         log::info!("Waiting for connection....");
-        while let Ok((stream, _addr)) = listener.accept() {
+        while let Ok((mut stream, _addr)) = listener.accept() {
             if let Ok(AdminActions::KillServer) = self.admin_rx.try_recv() {
                 // If we've gotten a kill signal, then stop the server.
                 break;
             }
 
             log::info!("Received connection from {}!", _addr.ip());
-            // TODO: Rate-limiting / failtoban stuff
-
-            // Testing for async requests in tokio tasks.
-            // async fn test(data: DataSystem) {
-            //     let users = data.get::<AppUser>().unwrap();
-            //     let all = users.all().await.unwrap();
-            // }
-            // tokio::spawn(test(context.data_providers.clone()));
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(
+                self.config.request_timeout_seconds,
+            )));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(
+                self.config.request_timeout_seconds,
+            )));
+            // TODO: Rate-limiting & failtoban to block malicious actors
 
             let inner = self.inner.clone();
             tokio::spawn(inner.handle_request(stream, context.clone()));
-            // time_exec!("ENTIRE REQUEST", self.handle_request(stream, context.clone()).await?);
 
             log::info!("Waiting for connection....");
         }
@@ -474,14 +495,14 @@ impl WebService {
                 // No users exist. Create a default user.
                 let email_address =
                     std::env::var("CREATE_ADMIN_USER_EMAIL").unwrap_or("root@localhost".into());
-                log::warn!("CREATING ADMIN USER WITH EMAIL {}", &email_address);
+                log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                log::warn!("!!! CREATING ADMIN USER WITH EMAIL {}", &email_address);
                 let password = std::env::var("CREATE_ADMIN_USER_PASSWORD").unwrap_or_else(|_| {
                     let mut rng = rand::thread_rng();
                     let password = (0..24).map(|_| rng.sample(&Alphanumeric) as char).collect();
-                    log::warn!("CREATING ADMIN USER WITH PASSWORD {}", &password);
-                    log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                    log::warn!("!!! CREATING ADMIN USER WITH PASSWORD {}", &password);
                     log::warn!("!!! CHANGE THIS PASSWORD !!!");
-                    log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                    log::warn!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                     password
                 });
                 users
@@ -519,18 +540,17 @@ impl WebServiceInner {
         mut stream: std::net::TcpStream,
         server_context: ServerContext,
     ) -> Result<RequestMetrics, crate::Error> {
-        log::info!("Connection received from {}", stream.peer_addr()?);
-        // TODO: Reject requests where Content-Length > MAX_REQUEST_SIZE
-        // And other validity checks.
+        let request_id = uuid::Uuid::new_v4();
+        log::info!("[REQ_ID {request_id}] Connection received from {}", stream.peer_addr()?);
 
         let request = time_exec!(
-            "Request Destructuring",
+            "[REQ_ID {request_id}] Request Destructuring",
             crate::application::http::route::Request::try_from(&stream)
         );
         let response = match request {
             Ok(request) => {
                 let context = time_exec!(
-                    "Build Context",
+                    "[REQ_ID {request_id}] Build Context",
                     RequestContext::from_server_context(server_context)
                 );
 
