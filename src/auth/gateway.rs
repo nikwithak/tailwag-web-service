@@ -11,8 +11,9 @@ use argon2::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tailwag_macros::{BuildRoutes, Filterable};
+use tailwag_macros::BuildRoutes;
 use tailwag_orm::data_manager::{traits::DataProvider, PostgresDataProvider};
+use tailwag_orm_macros::Filterable;
 use uuid::Uuid;
 
 use crate::application::{
@@ -34,10 +35,10 @@ mod tailwag {
     Deserialize, // Needed for API de/serialization
     Serialize,   // Needed for API de/serialization
     // sqlx::FromRow,                      // Needed for DB connectivity
-    tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
-    tailwag_macros::Insertable,
-    tailwag_macros::Updateable,
-    tailwag_macros::Deleteable,
+    tailwag_orm_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
+    tailwag_orm_macros::Insertable,
+    tailwag_orm_macros::Updateable,
+    tailwag_orm_macros::Deleteable,
     Filterable,
     BuildRoutes,
     tailwag::forms::macros::GetForm,
@@ -116,11 +117,11 @@ impl tailwag::orm::data_manager::rest_api::Id for AppUser {
     Serialize,   // Needed for API de/serialization
     // sqlx::FromRow, // Needed for DB connectivity
     BuildRoutes,
-    tailwag_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
-    tailwag_macros::Insertable,
-    tailwag_macros::Updateable,
-    tailwag_macros::Deleteable,
-    tailwag_macros::Filterable,
+    tailwag_orm_macros::GetTableDefinition, // Creates the data structure needed for the ORM to work.
+    tailwag_orm_macros::Insertable,
+    tailwag_orm_macros::Updateable,
+    tailwag_orm_macros::Deleteable,
+    tailwag_orm_macros::Filterable,
     tailwag::forms::macros::GetForm,
 )]
 #[policy(RoutePolicy::RequireRole("Admin".to_string()))]

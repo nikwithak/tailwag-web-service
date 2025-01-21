@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use tailwag_macros::derive_magic;
 use tailwag_web_service::{
     application::{AdminActions, WebService, WebServiceBuildResponse},
     auth::gateway,
@@ -18,10 +17,25 @@ mod tailwag {
     pub use tailwag_web_service as web;
 }
 
-derive_magic! {
-    pub struct Event {
-        id: uuid::Uuid,
-    }
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    sqlx::FromRow,
+    tailwag_orm_macros::GetTableDefinition,
+    tailwag_orm_macros::Insertable,
+    tailwag_orm_macros::Updateable,
+    tailwag_orm_macros::Deleteable,
+    tailwag_orm_macros::Filterable,
+    tailwag::macros::BuildRoutes,
+    tailwag_orm_macros::Id,
+    tailwag::macros::Display,
+    tailwag::forms::macros::GetForm,
+)]
+pub struct Event {
+    id: uuid::Uuid,
 }
 
 type KillSignalCell = OnceLock<Sender<AdminActions>>;

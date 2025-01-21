@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tailwag_forms::{Form, GetForm};
-use tailwag_macros::{time_exec, Deref};
+use tailwag_macros::Deref;
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::data_manager::traits::DataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
@@ -28,6 +28,7 @@ use tailwag_orm::{
     data_manager::GetTableDefinition,
     queries::{Deleteable, Updateable},
 };
+use tailwag_utils::time_exec;
 use tailwag_utils::types::generic_type_map::TypeInstanceMap;
 
 use crate::application::http::route::{IntoResponse, RequestContext, ServerContext};
