@@ -1,24 +1,20 @@
 [package]
 name = "tailwag_web_service"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "A web service generator, relying on the tailwag_orm crate. A component of the tailwag crate."
+description = "A library for quickly generating web services, relying on the tailwag_orm crate. A component of the tailwag crate."
 #readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 
 [dependencies]
-
-# `tailwag` has the whole suite packaged together - not using it here though since this rolls up to tailwag.
-# tailwag = { version = "0.1.0", path = "../", features = ["macros", "default"] }
-# tailwag_macros = { version = "0.1.0", path = "../macros" }
-tailwag_orm = { version = "0.2.0", path = "../orm" }
-tailwag_orm_macros = { version = "0.2.0", path = "../orm/macros" }
-tailwag_utils = { version = "0.1.1", path = "../utils" }
-tailwag_macros = { version = "0.2.1", path = "../macros" }
-tailwag_forms = { version = "0.2.0", path = "../forms" }
+tailwag_orm = { version = "0.3.0", path = "../orm" }
+tailwag_orm_macros = { version = "0.3.0", path = "../orm/macros" }
+tailwag_utils = { version = "0.3.0", path = "../utils" }
+tailwag_macros = { version = "0.3.0", path = "../macros" }
+tailwag_forms = { version = "0.3.0", path = "../forms" }
 
 
 # Error Handling Ergonomics
