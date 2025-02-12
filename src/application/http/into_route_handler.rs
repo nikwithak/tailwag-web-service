@@ -5,9 +5,12 @@ use std::pin::Pin;
 
 use std::future::Future;
 
-use crate::application::http::route::{FromRequest, IntoResponse, RouteHandler};
+use crate::{
+    application::http::route::{FromRequest, IntoResponse, RouteHandler},
+    HttpResult,
+};
 
-use super::route::{RequestContext, Response};
+use super::route::{Request, RequestContext, Response};
 
 impl IntoRouteHandler<(), (), ()> for RouteHandler {
     fn into(self) -> RouteHandler {
@@ -131,6 +134,27 @@ where
                         return Response::bad_request();
                     };
                     self(req).into_response()
+                })
+            }),
+        }
+    }
+}
+
+pub struct RouteArgsRootTypes;
+impl<F, O, Fut> IntoRouteHandler<F, RouteArgsRootTypes, (F, (Request, RequestContext), O)> for F
+where
+    F: Send + Sync + Copy + 'static + Fn(Request, RequestContext) -> Fut,
+    O: IntoResponse + Sized + Send + 'static,
+    Fut: Future<Output = HttpResult<O>> + 'static + Send,
+{
+    fn into(self) -> RouteHandler {
+        RouteHandler {
+            handler: Box::new(move |req, ctx| {
+                Box::pin(async move {
+                    match self(req, ctx).await {
+                        Ok(resp) => resp.into_response(),
+                        Err(err) => err.into_response(),
+                    }
                 })
             }),
         }
