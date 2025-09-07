@@ -70,4 +70,4 @@ tasks = []
 
 [dev-dependencies]
 async-stripe = { version = "0.34.1", features = ["runtime-tokio-hyper"] }
-hurl = "4.2.0"
+hurl = "7.0.0"
