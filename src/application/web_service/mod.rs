@@ -154,7 +154,7 @@ impl Default for WebServiceBuilder {
             .map(String::from)
             .collect();
 
-        let cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLWOED_ORIGIN")
+        let cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLOWED_ORIGINS")
             .unwrap_or("*".into())
             .split(",")
             .map(String::from)
@@ -558,7 +558,7 @@ impl WebServiceInner {
                 let handler = self.consolidated_handler.clone();
                 handler(request, context).await
             },
-            Err(err) => err.into_response(),
+            Err(err) => dbg!(err).into_response(),
         };
 
         stream.write_all(&response.as_bytes())?;

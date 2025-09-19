@@ -3,11 +3,13 @@ use std::{
     io::{BufRead, BufReader},
 };
 
-use crate::HttpResult;
-
-use super::{
-    headers::Headers,
-    route::{HttpBody, Request},
+use crate::{
+    application::http::{
+        headers::Headers,
+        route::{HttpBody, Request},
+    },
+    option_utils::OrError,
+    HttpResult,
 };
 
 #[derive(Debug, Default)]
@@ -33,6 +35,24 @@ enum MultipartParserState {
 }
 
 pub type MultipartParts = HashMap<String, MultipartPart>;
+pub trait TryGetStringValue {
+    fn try_get_string_value(
+        &self,
+        key: &str,
+    ) -> HttpResult<String>;
+}
+impl TryGetStringValue for MultipartParts {
+    fn try_get_string_value(
+        &self,
+        key: &str,
+    ) -> HttpResult<String> {
+        Ok(self
+            .get(key)
+            .map(|part| part.content.clone().try_into().ok())
+            .flatten()
+            .or_400("Error deserializing value {}")?)
+    }
+}
 
 #[derive(Default)]
 struct MultipartParser {
@@ -142,4 +162,10 @@ impl TryGetMultipartParts for Request {
             _ => crate::HttpError::bad_request("File uploads require a 'multipart' content-type."),
         }
     }
+}
+
+pub trait FromMultipartRequest {
+    fn from_multipart_request(parts: &MultipartParts) -> Result<Self, crate::Error>
+    where
+        Self: Sized;
 }

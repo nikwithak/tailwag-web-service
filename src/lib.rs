@@ -25,7 +25,7 @@ pub type HttpResult<T> = Result<T, Error>;
 /// Helper functions for quickly throwing errors from an API endpoint.
 impl Error {
     pub fn bad_request<T>(msg: &str) -> HttpResult<T> {
-        Err(Error::BadRequest(msg.into()))
+        Err(Error::BadRequest(dbg!(msg).into()))
     }
     pub fn internal_server_error<T>(msg: &str) -> HttpResult<T> {
         Err(Error::InternalServerError(msg.into()))
