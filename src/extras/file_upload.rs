@@ -17,6 +17,7 @@ use tailwag_orm::data_definition::table::Identifier;
 use tailwag_orm::data_manager::local_storage_provider::LocalStorageFileProvider;
 use tailwag_orm::data_manager::rest_api::Id;
 use tailwag_orm::data_manager::traits::DataProvider;
+use tailwag_orm::data_manager::GetTableDefinition;
 use tailwag_orm::data_manager::PostgresDataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::queries::Deleteable;
@@ -55,11 +56,14 @@ where
         + Clone
         + Unpin
         + Id
+        + GetTableDefinition
         + Filterable
         + Default,
 {
+    // A bit hacky...
+    let col_name = format!("{}.id", &T::get_table_definition().table_name);
     let filter = Filter::Equal(
-        FilterComparisonParam::TableColumn(Identifier::new_unchecked("id")),
+        FilterComparisonParam::TableColumn(Identifier::new_unchecked(col_name)),
         FilterComparisonParam::Uuid(
             Uuid::from_str(&*id)
                 .map_err(|_| crate::Error::BadRequest("Invalid UUID provided".into()))?,

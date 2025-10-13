@@ -79,9 +79,11 @@ macro_rules! test_hurl_file {
     ($filename:literal) => {
         let result = hurl::runner::run(
             include_str!($filename),
+            None,
             &hurl::runner::RunnerOptionsBuilder::new().build(),
             // &HashMap::default(),
-            &vec![].into_iter().collect(),
+            // &vec![].into_iter().collect(),
+            &Default::default(),
             &hurl::util::logger::LoggerOptionsBuilder::new().build(),
         );
         assert!(result.unwrap().success);

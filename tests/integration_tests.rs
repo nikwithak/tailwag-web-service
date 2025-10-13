@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{mpsc::Sender, Arc, OnceLock},
     thread::sleep,
     time::Duration,
@@ -61,22 +60,24 @@ macro_rules! test_hurl_file {
     ($filename:literal) => {
         let result = hurl::runner::run(
             include_str!($filename),
+            None,
             &hurl::runner::RunnerOptionsBuilder::new().build(),
             // &HashMap::default(),
-            &vec![(
-                "email_address".to_string(),
-                hurl::runner::Value::String(format!(
-                    "{}@localhost.local",
-                    // Generates a unique random email address to verify the entire end_to_end flow
-                    uuid::Uuid::new_v4()
-                        .to_string()
-                        .chars()
-                        .filter(|c| c.is_alphanumeric())
-                        .collect::<String>()
-                )),
-            )]
-            .into_iter()
-            .collect(),
+            &Default::default(),
+            // &vec![(
+            //     "email_address".to_string(),
+            //     hurl::runner::Value::String(format!(
+            //         "{}@localhost.local",
+            //         // Generates a unique random email address to verify the entire end_to_end flow
+            //         uuid::Uuid::new_v4()
+            //             .to_string()
+            //             .chars()
+            //             .filter(|c| c.is_alphanumeric())
+            //             .collect::<String>()
+            //     )),
+            // )]
+            // .into_iter()
+            // .collect(),
             &hurl::util::logger::LoggerOptionsBuilder::new().build(),
         );
         assert!(result.unwrap().success);
@@ -113,8 +114,9 @@ fn run_hurl_tests() {
     // intercept SIGKILL signal so I can cleanly shut down when deploying updates.
     hurl::runner::run(
         r#"GET http://localhost:8081/"#,
+        None,
         &hurl::runner::RunnerOptionsBuilder::new().build(),
-        &HashMap::default(),
+        &Default::default(),
         &hurl::util::logger::LoggerOptionsBuilder::new().build(),
     )
     .ok();

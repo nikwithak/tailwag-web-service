@@ -1,7 +1,8 @@
+use sqlx::Postgres;
 use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::exp_data_system::DataSystem, data_manager::traits::WithFilter,
-    queries::filterable_types::FilterEq,
+    queries::filterable_types::FilterEq, OrmResult,
 };
 
 use crate::application::http::route::RoutePolicy;
@@ -160,7 +161,8 @@ pub fn extract_session(
     next: Arc<NextFn>,
 ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send>> {
     Box::pin(async move {
-        let Some(sessions) = context.get::<Session>() else {
+        let (Some(sessions), Some(users)) = (context.get::<Session>(), context.get::<AppUser>())
+        else {
             return Response::internal_server_error();
         };
 
@@ -208,11 +210,14 @@ pub fn extract_session(
             Ok(Some(session)) => {
                 log::debug!("Session found! {:?}", &session);
                 log::debug!("Adding session to RequestContext");
+                if let Ok(Some(user)) = session.get_current_user(users).await {
+                    context.insert_request_data(user);
+                }
                 context.insert_request_data(session);
                 next(request, context).await
             },
             Ok(None) => {
-                log::debug!("No session found fo request.");
+                log::debug!("No session found for request.");
                 next(request, context).await
             },
             Err(e) => {
@@ -340,4 +345,15 @@ pub async fn register(
         account_id: account.id,
     };
     Some(response)
+}
+
+impl Session {
+    pub async fn get_current_user(
+        &self,
+        users: PostgresDataProvider<AppUser>,
+    ) -> OrmResult<Option<AppUser>> {
+        let user_id = &self.account_id;
+        let user = users.get(|user| user.id.eq(*user_id)).await?;
+        Ok(user)
+    }
 }

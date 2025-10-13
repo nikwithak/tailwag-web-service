@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
+    str::FromStr,
 };
 
 use crate::{
@@ -35,13 +36,17 @@ enum MultipartParserState {
 }
 
 pub type MultipartParts = HashMap<String, MultipartPart>;
-pub trait TryGetStringValue {
+pub trait TryGetValues {
     fn try_get_string_value(
         &self,
         key: &str,
     ) -> HttpResult<String>;
+    fn try_parse_value<T: FromStr>(
+        &self,
+        key: &str,
+    ) -> HttpResult<T>;
 }
-impl TryGetStringValue for MultipartParts {
+impl TryGetValues for MultipartParts {
     fn try_get_string_value(
         &self,
         key: &str,
@@ -50,6 +55,16 @@ impl TryGetStringValue for MultipartParts {
             .get(key)
             .map(|part| part.content.clone().try_into().ok())
             .flatten()
+            .or_400("Error deserializing value {}")?)
+    }
+    fn try_parse_value<T: FromStr>(
+        &self,
+        key: &str,
+    ) -> HttpResult<T> {
+        Ok(self
+            .get(key)
+            .and_then(|part| part.content.clone().try_into().ok())
+            .and_then(|str: String| str.parse().ok())
             .or_400("Error deserializing value {}")?)
     }
 }

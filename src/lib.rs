@@ -15,6 +15,7 @@ pub enum Error {
     TaskSchedculingError(TaskError),
     Conflict,
     NotFound,
+    Unauthorized,
     EntityTooLarge,
     UnsupportedMediaType,
 }
@@ -41,6 +42,9 @@ impl Error {
     }
     pub fn unsupported_media_type<T>() -> HttpResult<T> {
         Err(Error::UnsupportedMediaType)
+    }
+    pub fn unauthorized<T>() -> HttpResult<T> {
+        Err(Error::Unauthorized)
     }
 }
 
@@ -90,6 +94,10 @@ impl IntoResponse for crate::Error {
                 log::warn!("[UNSUPPORTED MEDIA TYPE]: ");
                 Response::unsupported_media_type()
             },
+            Error::Unauthorized => {
+                log::warn!("[UNAUTHORIZED]: ");
+                Response::unauthorized()
+            },
         }
     }
 }
@@ -111,8 +119,12 @@ pub mod option_utils {
             self,
             msg: &str,
         ) -> HttpResult<T>;
+        fn or_401(self) -> HttpResult<T>;
     }
     impl<T> OrError<T> for Option<T> {
+        fn or_401(self) -> HttpResult<T> {
+            self.ok_or(HttpError::Unauthorized)
+        }
         fn or_404(self) -> HttpResult<T> {
             self.ok_or(HttpError::NotFound)
         }
