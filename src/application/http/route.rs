@@ -154,6 +154,18 @@ impl Route {
 }
 
 impl Route {
+    fn parse_query_params(query_string: &str) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        let params = query_string.split("&");
+        for param in params {
+            if let Some((key, val)) = param.split_once('=') {
+                map.insert(key.to_string(), val.to_string());
+            } // TODO [Feature] work in parsing for < > <= >= etc
+        }
+
+        map
+    }
+
     pub async fn handle(
         &self,
         mut request: Request,
@@ -162,15 +174,18 @@ impl Route {
         let path = &request.path;
         let mut route = self;
 
+        let (path, query_params) = path.split_once('?').unwrap_or((path, ""));
         for segment in path.split('/').filter(|s| !s.is_empty()) {
             match route.children.get(&segment.to_string()) {
                 Some(new_route) => route = new_route,
                 None => {
-                    if let Some((_name, new_route)) = &route.dynamic_child {
+                    if let Some((name, new_route)) = &route.dynamic_child {
                         let decoded = match urlencoding::decode(segment) {
                             Ok(s) => s.into_owned(),
                             Err(_e) => return Response::bad_request(),
                         };
+                        request.path_params_map.insert(name.to_string(), decoded.clone());
+                        // TODO: Remove old path_params eventually (and replace with path_params_map?).
                         request.path_params.push(decoded);
                         route = new_route
                     } else {
@@ -179,6 +194,8 @@ impl Route {
                 },
             }
         }
+
+        request.query_params = Self::parse_query_params(query_params);
 
         if let Some(future) = route.handlers.get(&request.method) {
             //TODO: Verify policy
@@ -199,25 +216,15 @@ async fn is_authorized(
 ) -> bool {
     match policy {
         RoutePolicy::Public => true, // Always allow public routes
-        RoutePolicy::RequireAuthentication => {
-            ctx.get_request_data::<Session>().map_or(false, |_session| {
-                // TODO: For now we just look to see if the session exists. Need to add better validation.
-                // THIS IS NOT WELL-TESTED
-                true
-            })
-        },
+        RoutePolicy::RequireAuthentication => ctx
+            .get_request_data::<Session>()
+            .map_or(false, |sess| sess.get_authenticated_user().is_some()),
         RoutePolicy::RequireRole(role) => {
             // TODO: THis needs to be re-worked when Roles are addressed. For now, this only works for the
             // `Admin` role, and uses a hardcoded boolean flag instead of actual roles.
-            let Some(users) = ctx.get::<AppUser>() else {
-                return false;
-            };
-            let session = ctx.get_request_data::<Session>(); //map_or(false, |sess| todo!())
-            let Some(user_id) = session.map(|sess| sess.account_id) else {
-                return false;
-            };
-            let user = users.get(|u| u.id.eq(user_id)).await.ok().flatten();
-            // Hacked together - if "admin" is the requested role, and the user is an admin, then and only then will this succeed.
+            let user =
+                ctx.get_request_data::<Session>().and_then(|sess| sess.get_authenticated_user()); //map_or(false, |sess| todo!())
+                                                                                                  // Hacked together - if "admin" is the requested role, and the user is an admin, then and only then will this succeed.
             user.map_or(false, |u| u.is_admin()) && role.to_lowercase() == "admin"
         },
     }
@@ -511,6 +518,8 @@ pub struct Request {
     pub method: HttpMethod,
     pub path: String,
     pub path_params: Vec<String>,
+    pub path_params_map: HashMap<String, String>,
+    pub query_params: HashMap<String, String>,
     pub http_version: HttpVersion,
     pub headers: Headers,
     pub body: HttpBody,
@@ -597,7 +606,10 @@ impl TryFrom<&std::net::TcpStream> for Request {
         Ok(Request {
             method: method.try_into()?,
             path: path.to_string(), // TODO: Validate it
+            #[deprecated(note = "Use path_params_map instead.")]
             path_params: Default::default(),
+            path_params_map: Default::default(),
+            query_params: Default::default(),
             http_version: http_version.try_into()?,
             headers,
             body,
@@ -723,13 +735,15 @@ pub struct RequestContext {
     #[deref]
     server_context: ServerContext,
     request_data: TypeInstanceMap,
+    data_providers: DataSystem,
 }
 
 impl RequestContext {
     pub fn from_server_context(server_context: ServerContext) -> Self {
         Self {
-            server_context,
             request_data: Default::default(),
+            data_providers: server_context.data_providers.clone(),
+            server_context,
         }
     }
     pub(crate) fn server_context(&self) -> ServerContext {
@@ -752,6 +766,9 @@ impl RequestContext {
     ) {
         self.request_data.insert(t);
     }
+    pub fn get_authenticated_user(&self) -> Option<&AppUser> {
+        self.get_request_data()
+    }
 }
 
 impl From<RequestContext> for ServerContext {
@@ -760,21 +777,9 @@ impl From<RequestContext> for ServerContext {
     }
 }
 
-impl From<ServerContext> for DataSystem {
-    fn from(ctx: ServerContext) -> Self {
-        ctx.data_providers.clone()
-    }
-}
-
-impl From<&RequestContext> for ServerContext {
-    fn from(val: &RequestContext) -> Self {
-        val.server_context.clone()
-    }
-}
-
 impl From<&RequestContext> for DataSystem {
     fn from(ctx: &RequestContext) -> Self {
-        ctx.server_context.data_providers.clone()
+        ctx.data_providers.clone()
     }
 }
 
@@ -802,23 +807,11 @@ impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
     }
 }
 
-impl<T: Insertable + Clone + Send + Sync + 'static> From<ServerContext>
-    for PostgresDataProvider<T>
-{
-    fn from(ctx: ServerContext) -> Self {
-        ctx.data_providers
-            .get::<T>()
-            .clone()
-            .expect("Attempted to use DataProvider that does not exist.")
-    }
-}
-
 impl<T: Insertable + Clone + Send + Sync + 'static> From<&RequestContext>
     for PostgresDataProvider<T>
 {
     fn from(ctx: &RequestContext) -> Self {
-        ctx.server_context
-            .data_providers
+        ctx.data_providers
             .get::<T>()
             .clone()
             .expect("Attempted to use DataProvider that does not exist.")
