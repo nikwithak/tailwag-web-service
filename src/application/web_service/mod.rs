@@ -22,7 +22,7 @@ use tailwag_orm::data_manager::traits::DataProvider;
 use tailwag_orm::queries::filterable_types::Filterable;
 use tailwag_orm::{
     data_definition::{
-        exp_data_system::{DataSystem, DataSystemBuilder, UnconnectedDataSystem},
+        data_system::{DataSystem, DataSystemBuilder, UnconnectedDataSystem},
         table::Identifier,
     },
     data_manager::GetTableDefinition,
@@ -43,6 +43,8 @@ use super::{http::route::Route, stats::RunResult};
 pub enum ApplicationError {
     #[error("Something went wrong.")]
     Error,
+    #[error("Server Resource Not Found")]
+    ServerResourceNotFound,
 }
 
 pub type Middleware = dyn Send
@@ -148,13 +150,14 @@ impl Default for WebServiceBuilder {
                     .parse()
                     .expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")));
 
-        let allowed_domains: HashSet<String> = std::env::var("ALLOWED_DOMAINS")
+        // TODO: Handle these.
+        let _allowed_domains: HashSet<String> = std::env::var("ALLOWED_DOMAINS")
             .unwrap_or("localhost,127.0.0.1".into())
             .split(",")
             .map(String::from)
             .collect();
 
-        let cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLOWED_ORIGINS")
+        let _cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLOWED_ORIGINS")
             .unwrap_or("*".into())
             .split(",")
             .map(String::from)
@@ -293,8 +296,8 @@ impl WebServiceBuilder {
             + Fn(
                 Request,
                 RequestContext,
-                // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>, // The function to call when computation is complete
-                Arc<NextFn>,
+                // The function to call when computation is complete
+                Arc<NextFn>, // fn(Request, RequestContext) -> Pin<Box<dyn Future<Output = Response>>>, // Box<NextFn>
             ) -> Pin<Box<dyn Send + Future<Output = Response>>>,
     ) -> Self {
         self._exp_middleware.push(Arc::new(func));
@@ -414,7 +417,7 @@ impl WebService {
                 r#"
 ============================================================================="
     ++ {application_name} IS RUNNING IN DEVELOPMENT MODE ++
-    ++      DO NOT USE IN PRODUCTION YET ++
+    ++      DO NOT USE IN PRODUCTION WITH THIS CONFIG ++
 ============================================================================="
 "#
             );
@@ -453,7 +456,7 @@ impl WebService {
         log::info!("Starting service on {}", &bind_addr);
         let listener = TcpListener::bind(&bind_addr).unwrap();
         log::info!("Waiting for connection....");
-        while let Ok((mut stream, _addr)) = listener.accept() {
+        while let Ok((stream, _addr)) = listener.accept() {
             if let Ok(AdminActions::KillServer) = self.admin_rx.try_recv() {
                 // If we've gotten a kill signal, then stop the server.
                 break;

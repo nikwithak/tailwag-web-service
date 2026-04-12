@@ -117,7 +117,6 @@ impl<T: FromMultipartRequest + Sized> FromRequest for File<T> {
     }
 }
 
-// TODO: Migrate all of this to tailwag::application::extras!
 pub async fn save_file<T>(
     file: File<<T as Insertable>::CreateRequest>,
     t_provider: PostgresDataProvider<T>,

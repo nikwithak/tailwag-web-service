@@ -2,8 +2,12 @@ pub mod runner;
 use std::sync::mpsc::Sender;
 
 use serde::Serialize;
+use tailwag_orm::data_manager::PostgresDataProvider;
 
-use crate::application::http::route::RequestContext;
+use crate::application::{
+    http::route::{RequestContext, ServerContext},
+    ApplicationError,
+};
 
 use self::runner::{TaskError, TaskRequest};
 
@@ -56,6 +60,14 @@ enum ScheduleError {
 #[derive(Clone)]
 pub struct TaskScheduler {
     task_queue: Sender<TaskRequest>,
+    // TODO: Enable DB (or other) storage for TaskRequest, in case of fatal errors (so we don't lose tasks)
+    // Things to add:
+    //  - Access to DB / storage
+    //  - Locking mechanism (NTH)
+    //  - Reload failed/pending tasks on startup
+    //  - TaskRequest -> helper functions to auto-add
+    //  - Status updates on success / failure / other
+    // tasks_db: Option<PostgresDataProvider<TaskRequest>>,
 }
 impl TaskScheduler {
     pub fn enqueue<T: Serialize + 'static>(
@@ -64,9 +76,7 @@ impl TaskScheduler {
     ) -> Result<Ticket, TaskError> {
         let task_request = TaskRequest::new(request_data);
         let ticket = task_request.get_ticket();
-        // First: Store request with status "NOT_STARTED"
         self.task_queue.send(task_request)?;
-        // .push_back((TypeId::of::<T>(), serde_json::to_string(&task_request)?));
         log::debug!("[TICKET {}] Sent task to handler", &ticket.id);
         Ok(ticket)
     } // TODO: Return a handle to the job ID
@@ -77,5 +87,15 @@ impl TaskScheduler {
 impl From<&RequestContext> for TaskScheduler {
     fn from(ctx: &RequestContext) -> Self {
         ctx.server_context().server_data.get::<Self>().unwrap().clone()
+    }
+}
+
+impl TryFrom<ServerContext> for TaskScheduler {
+    type Error = ApplicationError;
+    fn try_from(ctx: ServerContext) -> Result<Self, Self::Error> {
+        ctx.server_data
+            .get::<Self>()
+            .ok_or(ApplicationError::ServerResourceNotFound)
+            .cloned()
     }
 }

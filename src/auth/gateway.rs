@@ -1,7 +1,6 @@
-use sqlx::Postgres;
 use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
-    data_definition::exp_data_system::DataSystem, data_manager::traits::WithFilter,
+    data_definition::data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq, OrmResult,
 };
 
@@ -52,7 +51,7 @@ pub struct AppUser {
     email_address: String,
     #[serde(skip_serializing)]
     passhash: String,
-    // TEMPORARY - this flag should later be replaced with an actual RBAC / ABAC system.
+    // TODO: - this flag should later be replaced with an actual RBAC / ABAC system.
     is_admin: bool,
 }
 
@@ -98,10 +97,10 @@ pub async fn get_current_user(
     let Some(session) = ctx.get_request_data::<Session>() else {
         return Response::not_found();
     };
-    let Some(user) = users.get(|u| u.id.eq(session.account_id)).await.ok().flatten() else {
-        return Response::not_found();
-    };
-    user.into_response()
+    // let Some(user) = users.get(|u| u.id.eq(session.)).await.ok().flatten() else {
+    //     return Response::not_found();
+    // };
+    session.account.clone().into_response()
 }
 
 impl tailwag::orm::data_manager::rest_api::Id for AppUser {
@@ -128,13 +127,21 @@ impl tailwag::orm::data_manager::rest_api::Id for AppUser {
 #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
 pub struct Session {
     id: uuid::Uuid,
-    pub account_id: uuid::Uuid,
+    #[ref_only]
+    #[no_filter]
+    account: AppUser,
     start_time: chrono::NaiveDateTime,
     expiry_time: chrono::NaiveDateTime,
 }
 impl tailwag::orm::data_manager::rest_api::Id for Session {
     fn id(&self) -> &uuid::Uuid {
         &self.id
+    }
+}
+
+impl From<&RequestContext> for Option<Session> {
+    fn from(value: &RequestContext) -> Self {
+        value.get_request_data().cloned()
     }
 }
 
@@ -210,7 +217,7 @@ pub fn extract_session(
             Ok(Some(session)) => {
                 log::debug!("Session found! {:?}", &session);
                 log::debug!("Adding session to RequestContext");
-                if let Ok(Some(user)) = session.get_current_user(users).await {
+                if let Some(user) = session.get_authenticated_user() {
                     context.insert_request_data(user);
                 }
                 context.insert_request_data(session);
@@ -228,7 +235,6 @@ pub fn extract_session(
     })
 }
 
-// The actual middleware function
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
     email_address: String,
@@ -275,7 +281,7 @@ pub async fn login(
     };
     let Ok(new_session) = sessions
         .create(SessionCreateRequest {
-            account_id: account.id,
+            account,
             start_time: Utc::now().naive_utc(),
             expiry_time: Utc::now().naive_utc() + Duration::from_millis(SESSION_LENGTH_MS),
         })
@@ -348,12 +354,20 @@ pub async fn register(
 }
 
 impl Session {
+    pub fn get_authenticated_user(&self) -> Option<AppUser> {
+        // let user_id = &self.account.id;
+        // let user = users.get(|user| user.id.eq(*user_id)).await?;
+        // Ok(user)
+        Some(self.account.clone())
+    }
+    #[deprecated = "Use get_authenticated_user() instead"]
     pub async fn get_current_user(
         &self,
-        users: PostgresDataProvider<AppUser>,
+        // users: PostgresDataProvider<AppUser>,
     ) -> OrmResult<Option<AppUser>> {
-        let user_id = &self.account_id;
-        let user = users.get(|user| user.id.eq(*user_id)).await?;
-        Ok(user)
+        // let user_id = &self.account.id;
+        // let user = users.get(|user| user.id.eq(*user_id)).await?;
+        // Ok(user)
+        Ok(self.get_authenticated_user())
     }
 }

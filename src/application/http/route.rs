@@ -10,7 +10,7 @@ use std::{
 };
 use tailwag_macros::{Deref, Display};
 use tailwag_orm::{
-    data_definition::exp_data_system::DataSystem,
+    data_definition::data_system::DataSystem,
     data_manager::{traits::DataProvider, PostgresDataProvider},
     queries::{filterable_types::FilterEq, Insertable},
 };
@@ -19,12 +19,15 @@ use tailwag_utils::{
 };
 
 use crate::{
-    application::http::{headers::Headers, multipart::parse_multipart_request},
-    auth::gateway::Session,
-};
-use crate::{
     application::{http::into_route_handler::IntoRouteHandler, ConfigConstants},
     auth::gateway::AppUser,
+};
+use crate::{
+    application::{
+        http::{headers::Headers, multipart::parse_multipart_request},
+        ApplicationError,
+    },
+    auth::gateway::Session,
 };
 
 /// TODO: This file has gotten huge, and contains WAY more than just route logic. Factor a bunch of this out to smaller files in more logical groupings.
@@ -513,8 +516,6 @@ impl Deref for HttpVersion {
 
 #[derive(Debug)]
 pub struct Request {
-    // TODO: The rest of this
-    // TODO: This could be a u8 in the future, sinc eit won't always be text.
     pub method: HttpMethod,
     pub path: String,
     pub path_params: Vec<String>,
@@ -777,6 +778,12 @@ impl From<RequestContext> for ServerContext {
     }
 }
 
+impl<T: Insertable + Clone + Send + 'static> From<ServerContext> for PostgresDataProvider<T> {
+    fn from(value: ServerContext) -> Self {
+        value.data_providers.get::<T>().unwrap()
+    }
+}
+
 impl From<&RequestContext> for DataSystem {
     fn from(ctx: &RequestContext) -> Self {
         ctx.data_providers.clone()
@@ -799,6 +806,20 @@ impl<T: Clone + Send + Sync + 'static> From<&RequestContext> for ServerData<T> {
         Self(ctx.server_context.server_data.get::<T>().unwrap().clone())
     }
 }
+
+// impl<T: Clone + Send + Sync + 'static> TryFrom<&RequestContext> for ServerData<T> {
+//     type Error = ApplicationError;
+//     fn try_from(ctx: &RequestContext) -> Result<Self, Self::Error> {
+//         // TODO: Use TryFrom instead
+//         Ok(Self(
+//             ctx.server_context
+//                 .server_data
+//                 .get::<T>()
+//                 .cloned()
+//                 .ok_or(ApplicationError::ServerResourceNotFound)?,
+//         ))
+//     }
+// }
 
 impl<T: Clone + Send + Sync + 'static> From<ServerContext> for ServerData<T> {
     fn from(ctx: ServerContext) -> Self {
