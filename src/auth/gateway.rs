@@ -1,10 +1,22 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, SystemTimeError},
+};
 use tailwag_orm::{
     data_definition::data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq, OrmResult,
 };
+use totp_rs::{Rfc6238, TOTP};
 
-use crate::application::http::route::RoutePolicy;
+use crate::{
+    application::{
+        http::route::{FromRequest, RoutePolicy},
+        WebServiceBuilder,
+    },
+    option_utils::OrError,
+    Error, HttpResult,
+};
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHasher, PasswordVerifier,
@@ -44,7 +56,9 @@ mod tailwag {
     tailwag::forms::macros::GetForm,
 )]
 #[views(("/current", get_current_user, RoutePolicy::RequireAuthentication))]
+#[actions(("/totp/enable", enable_totp, RoutePolicy::RequireAuthentication),("/totp/confirm", confirm_totp, RoutePolicy::RequireAuthentication))]
 #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+#[no_default_routes]
 #[create_type(AppUserCreateRequest)]
 pub struct AppUser {
     id: uuid::Uuid,
@@ -53,6 +67,37 @@ pub struct AppUser {
     passhash: String,
     // TODO: - this flag should later be replaced with an actual RBAC / ABAC system.
     is_admin: bool,
+    #[serde(skip_serializing)]
+    // TODO: Encrypt this with an application-specific encryption secret loaded at runtime.
+    totp_secret: Option<String>,
+    totp_enabled: Option<bool>,
+}
+
+impl AppUser {
+    fn generate_totp_secret(&mut self) {
+        self.totp_secret = Some(totp_rs::TOTP::default().get_secret_base32());
+    }
+
+    fn verify_totp_code(
+        &self,
+        user_code: String,
+    ) -> bool {
+        if let Some(secret) = &self.totp_secret {
+            let mut totp = TOTP::default();
+            let Ok(secret) = totp_rs::Secret::Encoded(secret.clone()).to_bytes() else {
+                return false;
+            };
+            totp.secret = secret;
+            let Ok(code) = totp.generate_current() else {
+                return false;
+            };
+            code == user_code
+        } else {
+            // Returns *false* if TOTP is disabled - user shouldn't be giving
+            // a TOTP code in this case.
+            false
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -75,6 +120,8 @@ impl Into<AppUser> for AppUserCreateRequest {
                     .to_string();
                 passhash
             },
+            totp_secret: None,
+            totp_enabled: Some(false),
         }
     }
 }
@@ -125,6 +172,7 @@ impl tailwag::orm::data_manager::rest_api::Id for AppUser {
     tailwag::forms::macros::GetForm,
 )]
 #[policy(RoutePolicy::RequireRole("Admin".to_string()))]
+#[no_default_routes]
 pub struct Session {
     id: uuid::Uuid,
     #[ref_only]
@@ -168,13 +216,11 @@ pub fn extract_session(
     next: Arc<NextFn>,
 ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send>> {
     Box::pin(async move {
-        let (Some(sessions), Some(users)) = (context.get::<Session>(), context.get::<AppUser>())
+        let (Some(sessions), Some(_users)) = (context.get::<Session>(), context.get::<AppUser>())
         else {
             return Response::internal_server_error();
         };
 
-        // First, log request:
-        log::debug!("{:?} {:?} {:?}", &request.method, &request.path, request.headers);
         fn extract_authz_token(request: &Request) -> Option<String> {
             if let Some(header) = request
                 .headers
@@ -239,6 +285,7 @@ pub fn extract_session(
 pub struct LoginRequest {
     email_address: String,
     password: String,
+    totp_code: Option<String>,
 }
 
 // TODO: Move to config
@@ -274,11 +321,18 @@ pub async fn login(
         creds.password.as_bytes(),
         &argon2::PasswordHash::new(&account.passhash).unwrap(),
     )?;
+
+    if account.totp_enabled.unwrap_or_default() {
+        if !account.verify_totp_code(creds.totp_code.or_404()?) {
+            crate::Error::not_found()?;
+        }
+    }
+
     let account = AppUser {
         passhash: "".into(),
-        // roles: vec![AuthorizationRole::Admin],
         ..account
     };
+
     let Ok(new_session) = sessions
         .create(SessionCreateRequest {
             account,
@@ -351,6 +405,47 @@ pub async fn register(
         account_id: account.id,
     };
     Some(response)
+}
+
+pub async fn enable_totp(
+    _: Request,
+    context: RequestContext,
+) -> HttpResult<Option<String>> {
+    let session: &Session = context.get_request_data().or_404()?;
+    let users: PostgresDataProvider<AppUser> = context.get().or_404()?;
+    let user = session.get_authenticated_user().or_404()?;
+    // Get the latest from the DB, in case Session is outdated.
+    let mut user = users.get(|u| u.id.eq(user.id)).await?.or_404()?;
+    user.generate_totp_secret();
+    users.update(&user).await?;
+    Ok(user.totp_secret)
+}
+
+#[derive(Deserialize)]
+pub struct ConfirmTotpRequest {
+    code: String,
+}
+
+pub async fn confirm_totp(
+    // request: ConfirmTotpRequest,
+    request: Request,
+    context: RequestContext,
+    // users: PostgresDataProvider<AppUser>,
+) -> HttpResult<()> {
+    let session: &Session = context.get_request_data().or_404()?;
+    let users: PostgresDataProvider<AppUser> = context.get().or_404()?;
+    let user = session.get_authenticated_user().or_404()?;
+    let request = <ConfirmTotpRequest as FromRequest>::from(request)?;
+    // Get the latest from the DB, in case Session is outdated.
+    let mut user = users.get(|u| u.id.eq(user.id)).await?.or_404()?;
+
+    if user.verify_totp_code(request.code) {
+        user.totp_enabled = Some(true);
+        users.update(&user).await?;
+        Ok(())
+    } else {
+        crate::HttpError::bad_request("Invalid TOTP code")
+    }
 }
 
 impl Session {
