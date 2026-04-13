@@ -1,21 +1,14 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, SystemTimeError},
-};
+use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::data_system::DataSystem, data_manager::traits::WithFilter,
     queries::filterable_types::FilterEq, OrmResult,
 };
-use totp_rs::{Rfc6238, TOTP};
+use totp_rs::TOTP;
 
 use crate::{
-    application::{
-        http::route::{FromRequest, RoutePolicy},
-        WebServiceBuilder,
-    },
+    application::http::route::{FromRequest, RoutePolicy},
     option_utils::OrError,
-    Error, HttpResult,
+    HttpResult,
 };
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
@@ -138,7 +131,7 @@ impl AppUser {
 
 pub async fn get_current_user(
     _request: Request,
-    users: PostgresDataProvider<AppUser>,
+    _users: PostgresDataProvider<AppUser>,
     ctx: RequestContext,
 ) -> Response {
     let Some(session) = ctx.get_request_data::<Session>() else {

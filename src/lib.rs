@@ -1,5 +1,3 @@
-use std::time::SystemTimeError;
-
 use application::http::route::{IntoResponse, Response};
 
 pub mod application;

@@ -2,7 +2,6 @@ pub mod runner;
 use std::sync::mpsc::Sender;
 
 use serde::Serialize;
-use tailwag_orm::data_manager::PostgresDataProvider;
 
 use crate::application::{
     http::route::{RequestContext, ServerContext},
