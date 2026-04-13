@@ -63,12 +63,11 @@ rand = "0.8.5"
 totp-rs = { version = "5.7.1", features = ["gen_secret"] }
 
 [features]
-default = ["development", "tasks", "access_control"]
+default = ["development", "tasks"]
 axum = []
 release = []
 development = []
 tasks = []
-access_control = []
 
 [dev-dependencies]
 async-stripe = { version = "0.34.1", features = ["runtime-tokio-hyper"] }
