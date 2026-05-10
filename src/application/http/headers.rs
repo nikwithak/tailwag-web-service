@@ -96,7 +96,7 @@ impl Headers {
             headers.insert_parsed(&line)?;
             line = String::new();
         }
-        Ok(dbg!(headers))
+        Ok(headers)
     }
 }
 
