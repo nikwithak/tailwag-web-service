@@ -282,7 +282,7 @@ pub struct LoginRequest {
 }
 
 // TODO: Move to config
-const SESSION_LENGTH_MS: u64 = 3600000;
+const SESSION_LENGTH_MS: u64 = 36000000;
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginResponse {

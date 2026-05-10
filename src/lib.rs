@@ -120,6 +120,10 @@ pub mod option_utils {
             msg: &str,
         ) -> HttpResult<T>;
         fn or_401(self) -> HttpResult<T>;
+        fn or_500(
+            self,
+            msg: &str,
+        ) -> HttpResult<T>;
     }
     impl<T> OrError<T> for Option<T> {
         fn or_401(self) -> HttpResult<T> {
@@ -133,6 +137,12 @@ pub mod option_utils {
             msg: &str,
         ) -> HttpResult<T> {
             self.ok_or(HttpError::BadRequest(msg.into()))
+        }
+        fn or_500(
+            self,
+            msg: &str,
+        ) -> HttpResult<T> {
+            self.ok_or(HttpError::InternalServerError(msg.into()))
         }
     }
 }

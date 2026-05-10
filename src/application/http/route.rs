@@ -603,7 +603,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
         Ok(Request {
             method: method.try_into()?,
             path: path.to_string(), // TODO: Validate it
-            #[deprecated(note = "Use path_params_map instead.")]
+            // DEPRECATED: Use path_params_map instead.
             path_params: Default::default(),
             path_params_map: Default::default(),
             query_params: Default::default(),
