@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::{collections::HashMap, future::Future, net::TcpListener, pin::Pin};
 
 use crate::application::http::into_route_handler::IntoRouteHandler;
-use crate::auth::gateway::{self, extract_session, AppUserCreateRequest, Session};
+use crate::auth::gateway::{self, extract_session, AppUserCreateRequest, JwtSecret, Session};
 use crate::tasks::runner::{IntoTaskHandler, Signal, TaskExecutor};
 use env_logger::Env;
 use log;
@@ -373,6 +373,7 @@ impl WebServiceBuilder {
         self.with_middleware(extract_session)
             .with_resource::<AppUser>()
             .with_resource::<Session>()
+            .with_server_data(JwtSecret::init())
             .post_public("/login", gateway::login)
             .post_public("/register", gateway::register)
     }

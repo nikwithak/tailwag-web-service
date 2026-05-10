@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::{pin::Pin, sync::Arc, time::Duration};
 use tailwag_orm::{
     data_definition::data_system::DataSystem, data_manager::traits::WithFilter,
@@ -26,11 +27,24 @@ use crate::application::{
     NextFn,
 };
 
-const JWT_SECRET: &str = "MY_SECRET_STRING"; // TODO: PANIC if detected in Production
 mod tailwag {
     pub use crate as web;
     pub use tailwag_forms as forms;
     pub use tailwag_orm as orm;
+}
+
+#[derive(Clone)]
+pub(crate) struct JwtSecret(String);
+impl JwtSecret {
+    pub(crate) fn init() -> Self {
+        Self(std::env::var("JWT_SECRET").ok().unwrap_or_else(|| {
+            rand::thread_rng()
+                .sample_iter(&rand::distributions::Alphanumeric)
+                .take(64)
+                .map(<char as From<_>>::from)
+                .collect()
+        }))
+    }
 }
 
 #[derive(
@@ -236,11 +250,14 @@ pub fn extract_session(
             }
         }
 
+        let Some(jwt_secret) = context.get_server_data::<JwtSecret>() else {
+            return Response::internal_server_error();
+        };
         let session_id = extract_authz_token(&request)
             .and_then(|token| {
                 jsonwebtoken::decode::<JwtClaims>(
                     &token,
-                    &jsonwebtoken::DecodingKey::from_secret(JWT_SECRET.as_ref()),
+                    &jsonwebtoken::DecodingKey::from_secret(jwt_secret.0.as_ref()),
                     &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
                 )
                 .ok()
@@ -290,11 +307,14 @@ pub struct LoginResponse {
     refresh: String,
 }
 pub async fn login(
-    creds: LoginRequest,
-    providers: DataSystem,
+    req: Request,
+    ctx: RequestContext,
 ) -> Result<Response, crate::Error> {
+    let creds: LoginRequest = <LoginRequest as FromRequest>::from(req)?;
+    let providers: DataSystem = DataSystem::try_from(&ctx)?;
     let accounts = providers.get::<AppUser>().ok_or(crate::Error::NotFound)?;
     let sessions = providers.get::<Session>().ok_or(crate::Error::NotFound)?;
+    let jwt_secret: &JwtSecret = ctx.get_server_data().or_500("Missing JWT Secrets")?;
 
     let account = accounts
         .with_filter(|acct| acct.email_address.eq(&creds.email_address))
@@ -343,7 +363,7 @@ pub async fn login(
             session_id: new_session.id,
             exp: new_session.expiry_time.and_utc().timestamp() as usize,
         },
-        &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET.as_ref()),
+        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.0.as_ref()),
     )
     .expect("Couldn't encode JWT");
 

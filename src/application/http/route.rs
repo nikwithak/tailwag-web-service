@@ -724,8 +724,6 @@ pub struct ServerContext {
     pub(crate) data_providers: DataSystem,
     pub(crate) server_data: Arc<TypeInstanceMap>,
 }
-// TODO: Wire this up (or find some way )
-// type RequestData = Arc<Mutex<TypeInstanceMap>>;
 
 #[derive(Deref)]
 pub struct RequestContext {
@@ -765,6 +763,10 @@ impl RequestContext {
     }
     pub fn get_authenticated_user(&self) -> Option<&AppUser> {
         self.get_request_data()
+    }
+
+    pub fn get_server_data<T: 'static + Sync + Send>(&self) -> Option<&T> {
+        self.server_data.get()
     }
 }
 
