@@ -2,22 +2,8 @@ use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use crate::application::{
     http::route::{HttpMethod, Request, RequestContext, Response},
-    NextFn,
+    NextFn, WebServiceConfig,
 };
-
-#[derive(Default)]
-pub struct CorsMiddleware {
-    _policy: CorsPolicy,
-}
-
-#[derive(Default)]
-#[allow(unused)]
-enum CorsPolicy {
-    Wildcard,
-    #[default]
-    EchoOrigin,
-    AllowOnly(Vec<String>),
-}
 
 #[derive(Debug)]
 pub struct CorsHeaders(pub HashMap<String, String>);
@@ -75,38 +61,44 @@ pub fn handle_cors(
     next: Arc<NextFn>,
 ) -> Pin<Box<dyn Send + std::future::Future<Output = Response>>> {
     Box::pin(async move {
-        // TODO: Not the proper way to check, but "good enough" to unblock.
-        // THIS CORS MIDDLEWARE IS WIDE OPEN RIGHT NOW don't rely on it for actual security
-        if matches!(req.method, HttpMethod::Options) {
+        let Some(allowed_origins) = ctx
+            .get_server_data::<Arc<WebServiceConfig>>()
+            .map(|config| &config.cors_allowed_origins)
+        else {
+            log::error!("WebServiceConfig is missing - this is a fatal error.");
+            return Response::internal_server_error();
+        };
+
+        let request_origin = req
+            .headers
+            .get(&CorsHeader::Origin.to_string())
+            .map(|header| header.to_string().trim().to_string());
+
+        let is_allowed_origin = request_origin
+            .as_ref()
+            .map(|origin| allowed_origins.contains(origin))
+            .map(|allowed| allowed || allowed_origins.contains("*"))
+            .unwrap_or(false);
+
+        let response = if matches!(req.method, HttpMethod::Options) {
+            // Preflight request - always sends 200. If it is an invalid origin, then we omit the
+            // CORS headers in the response. It is the browser's responsibility to contain this this.
             Response::ok()
+        } else {
+            next(req, ctx).await
+        };
+
+        if is_allowed_origin {
+            response
                 .with_header(
                     CorsHeader::AccessControlAllowOrigin.to_string(),
-                    req.headers
-                        .get(&CorsHeader::Origin.to_string())
-                        .map_or("*".to_string(), |s| s.to_string()),
+                    request_origin.unwrap_or_default(),
                 )
                 .with_header(CorsHeader::AccessControlAllowCredentials, "true")
                 .with_header(CorsHeader::AccessControlAllowHeaders, "origin, content-type, accept")
                 .with_header(CorsHeader::AccessControlAllowMethods, "GET, POST, DELETE, PATCH")
-        } else if req.headers.contains_key("origin") {
-            // Stash them for later - afterware will have to pull this
-            let origin = req
-                .headers
-                .get(&CorsHeader::Origin.to_string())
-                .map_or("null".to_owned(), |s| s.to_string());
-            next(req, ctx)
-                .await
-                .with_header(CorsHeader::AccessControlAllowOrigin.to_string(), origin)
-                .with_header(
-                    CorsHeader::AccessControlAllowCredentials.to_string(),
-                    "true".to_string(),
-                )
-                .with_header(
-                    CorsHeader::AccessControlAllowHeaders.to_string(),
-                    "origin, content-type, accept".to_string(),
-                )
         } else {
-            next(req, ctx).await
+            response
         }
     })
 }

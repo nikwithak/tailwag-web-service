@@ -70,6 +70,7 @@ pub struct WebServiceConfig {
     port: i32,
     migrate_on_init: bool,
     database_conn_string: String,
+    pub(crate) cors_allowed_origins: HashSet<String>,
 }
 // What if I do something like
 // ```rust
@@ -152,13 +153,14 @@ impl Default for WebServiceBuilder {
 
         // TODO: Handle these.
         let _allowed_domains: HashSet<String> = std::env::var("ALLOWED_DOMAINS")
-            .unwrap_or("localhost,127.0.0.1".into())
+            .unwrap_or_default()
             .split(",")
-            .map(String::from)
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.is_empty())
             .collect();
 
-        let _cors_allowed_origin: HashSet<String> = std::env::var("CORS_ALLOWED_ORIGINS")
-            .unwrap_or("*".into())
+        let cors_allowed_origins: HashSet<String> = std::env::var("CORS_ALLOWED_ORIGINS")
+            .unwrap_or("".into())
             .split(",")
             .map(String::from)
             .collect();
@@ -172,6 +174,7 @@ impl Default for WebServiceBuilder {
                 migrate_on_init,
                 database_conn_string,
                 request_timeout_seconds,
+                cors_allowed_origins,
             },
             resources: DataSystem::builder(),
             root_route: Route::default(),
@@ -316,7 +319,9 @@ impl WebServiceBuilder {
         let (admin_tx, admin_rx) = channel();
         // let WebServiceBuilder { config, root_route, migrations, forms, middleware_before, middleware_after, resources, server_data, task_executor } = self;
         let mut server_data = self.server_data;
+        let config = Arc::new(self.config);
         server_data.insert(self.task_executor.scheduler());
+        server_data.insert(config.clone());
 
         fn build_middleware(
             routes: Route,
@@ -351,7 +356,7 @@ impl WebServiceBuilder {
 
         let service = WebService {
             inner: WebServiceInner {
-                config: Arc::new(self.config),
+                config,
                 resources: self.resources.build().unwrap(),
                 // routes: Arc::new(self.root_route), // No longer stored in Webservice - it's now moved to Middleware when running.
                 server_data: Arc::new(server_data),
