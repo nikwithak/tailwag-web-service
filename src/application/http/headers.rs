@@ -122,7 +122,7 @@ impl Headers {
         &mut self,
         header_line: &str,
     ) -> Result<(HeaderName, &HeaderValue), Error> {
-        let Some((name, value)) = dbg!(header_line).split_once(':') else {
+        let Some((name, value)) = header_line.split_once(':') else {
             return Err(Error::BadRequest(format!("Failed to parse header: {}", header_line)));
         };
 

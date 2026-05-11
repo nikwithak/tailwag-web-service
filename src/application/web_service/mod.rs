@@ -133,23 +133,24 @@ impl Default for WebServiceBuilder {
                 format!("postgres://{user}:{password}@{endpoint}:{port}/{db_name}")
             },
         };
-        let socket_addr = dbg!(std::env::var("LISTEN_ADDRESS").unwrap_or("127.0.0.1".into())); // Only listens on localhost, unless configured otherwise.
-        let port = dbg!(std::env::var("LISTEN_PORT").map_or(8081, |port| port
-            .parse()
-            .expect("Invalid port provided - must be an integer.")));
-        let max_threads = dbg!(std::env::var("MAX_THREADS").map_or(4, |num_threads| num_threads
-            .parse()
-            .expect("Invalid thread count provided - must be an integer.")));
+        let socket_addr = std::env::var("LISTEN_ADDRESS").unwrap_or("127.0.0.1".into()); // Only listens on localhost, unless configured otherwise.
+        let port = std::env::var("LISTEN_PORT").map_or(8081, |port| {
+            port.parse().expect("Invalid port provided - must be an integer.")
+        });
+        let max_threads = std::env::var("MAX_THREADS").map_or(4, |num_threads| {
+            num_threads
+                .parse()
+                .expect("Invalid thread count provided - must be an integer.")
+        });
         let application_name =
-            dbg!(std::env::var("APPLICATION_NAME").unwrap_or("Tailwag Default Application".into()));
-        let migrate_on_init = dbg!(std::env::var("MIGRATE_ON_INIT").map_or(true, |val| val
-            .parse()
-            .expect("MIGRATE_ON_INIT must be parseable to a boolean")));
-        let request_timeout_seconds =
-            dbg!(std::env::var("REQUEST_TIMEOUT_MS") // Defaults to 30 seconds
-                .map_or(30000, |val| val
-                    .parse()
-                    .expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")));
+            std::env::var("APPLICATION_NAME").unwrap_or("Tailwag Default Application".into());
+        let migrate_on_init = std::env::var("MIGRATE_ON_INIT").map_or(true, |val| {
+            val.parse().expect("MIGRATE_ON_INIT must be parseable to a boolean")
+        });
+        let request_timeout_seconds = std::env::var("REQUEST_TIMEOUT_MS") // Defaults to 30 seconds
+            .map_or(30000, |val| {
+                val.parse().expect("REQUEST_TIMEOUT_SECONDS must be a valid integer.")
+            });
 
         // TODO: Handle these.
         let _allowed_domains: HashSet<String> = std::env::var("ALLOWED_DOMAINS")
@@ -567,7 +568,24 @@ impl WebServiceInner {
                 let handler = self.consolidated_handler.clone();
                 handler(request, context).await
             },
-            Err(err) => dbg!(err).into_response(),
+            Err(err) => {
+                match &err {
+                    crate::Error::InternalServerError(e) => {
+                        log::error!("INTERNAL SERVER ERROR: {e}");
+                    },
+                    crate::Error::TaskSchedculingError(e) => {
+                        log::error!(
+                            "TASK SCHEDULING ERROR: {}",
+                            match &e {
+                                crate::tasks::runner::TaskError::TaskNotFound => "Task Not Found",
+                                crate::tasks::runner::TaskError::Unknown(e) => e,
+                            }
+                        );
+                    },
+                    _ => {},
+                }
+                err.into_response()
+            },
         };
 
         stream.write_all(&response.as_bytes())?;

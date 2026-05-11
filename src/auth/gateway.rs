@@ -238,7 +238,7 @@ pub fn extract_session(
             } else if let Some(cookie) =
                 request.headers.get("Cookie").map(|header| header.as_str().to_string())
             {
-                let session_cookie = dbg!(cookie)
+                let session_cookie = cookie
                     .split(';')
                     .map(|cookie| cookie.trim())
                     .find(|cookie| cookie.starts_with("_id"))
@@ -371,12 +371,12 @@ pub async fn login(
         access: jwt.clone(),
         refresh: "".into(),
     };
-    let _cookie_header_val = format!(
-        "_id={}; HttpOnly; SameSite=None",
-        // "_id={}; HttpOnly; Domain={}; Path={}",
-        jwt,
-    );
-    let response = response.into_response().with_header("Set-Cookie", _cookie_header_val);
+
+    #[cfg(debug_assertions)] // Don't set Secure cookies on dev mode.
+    let cookie_header_val = format!("_id={}; HttpOnly; SameSite=Strict; Path=/", jwt,);
+    #[cfg(not(debug_assertions))] // DO set Secure cookies in Prod / release mode
+    let cookie_header_val = format!("_id={}; HttpOnly; Secure; SameSite=Strict; Path=/;", jwt,);
+    let response = response.into_response().with_header("Set-Cookie", cookie_header_val);
     Ok(response)
 }
 

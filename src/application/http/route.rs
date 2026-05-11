@@ -590,9 +590,7 @@ impl TryFrom<&std::net::TcpStream> for Request {
             log::info!("Reading {} bytes", content_length);
             stream.read_exact(&mut bytes)?;
             match content_type.to_lowercase().as_str() {
-                "application/json" => {
-                    dbg!(E::Json(String::from_utf8(bytes)?))
-                },
+                "application/json" => E::Json(String::from_utf8(bytes)?),
                 "multipart/form-data" => parse_multipart_request(content_type_params, bytes)?,
                 _ => crate::Error::unsupported_media_type()?,
             }
